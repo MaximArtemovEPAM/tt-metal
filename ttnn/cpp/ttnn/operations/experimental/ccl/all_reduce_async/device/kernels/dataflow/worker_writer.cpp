@@ -35,6 +35,11 @@ void kernel_main() {
     ///////////////////////////////////////////////////
 
     size_t arg_idx = 0;
+    const uint32_t is_worker = get_arg_val<uint32_t>(arg_idx++);
+    const uint32_t is_reducer = get_arg_val<uint32_t>(arg_idx++);
+    if (is_worker == 0) {
+        return;
+    }
     // Load the input tensor spec
     uint32_t reduction_input_cb_id = get_arg_val<address_t>(arg_idx++);
     address_t reduction_input_addr = get_write_ptr(reduction_input_cb_id);
@@ -51,11 +56,6 @@ void kernel_main() {
     const uint32_t reduction_semaphore_send_addr = get_semaphore(get_arg_val<uint32_t>(arg_idx++));
     const uint32_t num_mcast_ranges = get_arg_val<uint32_t>(arg_idx++);
     const uint32_t link = get_arg_val<uint32_t>(arg_idx++);
-
-    // Set up for mcasting to reduction workers
-    volatile tt_l1_ptr uint32_t* reduction_semaphore_send_addr_ptr =
-        reinterpret_cast<volatile tt_l1_ptr uint32_t*>(reduction_semaphore_send_addr);
-    noc_semaphore_set(reduction_semaphore_send_addr_ptr, VALID);
 
     tt_l1_ptr uint32_t* core_noc_x = (tt_l1_ptr uint32_t*)(get_arg_addr(arg_idx));
     arg_idx += num_cores;
@@ -186,6 +186,11 @@ void kernel_main() {
     // 3. wait for mcast output ready semaphore
     while (*reinterpret_cast<volatile tt_l1_ptr uint32_t*>(out_ready_sem_bank_addr) != out_ready_sem_wait_value);
 
+    // Set up for mcasting to reduction workers
+    volatile tt_l1_ptr uint32_t* reduction_semaphore_send_addr_ptr =
+        reinterpret_cast<volatile tt_l1_ptr uint32_t*>(reduction_semaphore_send_addr);
+    noc_semaphore_set(reduction_semaphore_send_addr_ptr, VALID);
+
     // loop over mcast ranges
     for (uint32_t i = 0; i < num_mcast_ranges; i++) {
         // Signal the reduction workers
@@ -203,6 +208,10 @@ void kernel_main() {
             false);  // linked = false
     }
 
+    if (is_worker == 1 && is_reducer == 1) {
+        noc_semaphore_set(reduction_semaphore_send_addr_ptr, 0);
+    }
+
     // 4. global semaphore reset
     *reinterpret_cast<volatile tt_l1_ptr uint32_t*>(out_ready_sem_bank_addr) = 0;
 
@@ -211,6 +220,4 @@ void kernel_main() {
     }
 
     noc_async_write_barrier();
-
-    // DPRINT << "writer done \n";
 }
