@@ -8,6 +8,9 @@
 
 #include "compute_kernel_api/eltwise_unary/sfpu_split_includes.h"
 #include "compute_kernel_api/tile_move_copy.h"
+
+#include "tools/profiler/kernel_profiler.hpp"
+
 namespace NAMESPACE {
 void MAIN {
     uint32_t per_core_block_cnt = get_arg_val<uint32_t>(0);
@@ -36,20 +39,23 @@ void MAIN {
     PACK((llk_pack_relu_config(ReluType::ZERO_RELU)));
 #endif
 
+    {
+        DeviceZoneScopedN("ELTWISE-BINARY-OP")
+
     for (uint32_t block = 0; block < per_core_block_cnt; ++block) {
-        cb_wait_front(cb_inp0, per_core_block_size);
-        cb_wait_front(cb_inp1, per_core_block_size);
-        cb_reserve_back(cb_out0, per_core_block_size);
+        // cb_wait_front(cb_inp0, per_core_block_size);
+        // cb_wait_front(cb_inp1, per_core_block_size);
+        // cb_reserve_back(cb_out0, per_core_block_size);
 
         tile_regs_acquire();
 
 #if defined(DST_ACCUM_MODE) || defined(ELTWISE_DEST_REUSE_TYPE)
-        cb_wait_front(cb_in2, per_core_block_size);
+        // cb_wait_front(cb_in2, per_core_block_size);
         copy_tile_to_dst_init_short(cb_in2);
         for (uint32_t i = 0; i < per_core_block_size; ++i) {
             copy_tile(cb_in2, i, i);  // copy from c_in[0] to DST[0]
         }
-        cb_pop_front(cb_in2, per_core_block_size);
+        // cb_pop_front(cb_in2, per_core_block_size);
 #endif
 
 #ifdef DST_ACCUM_MODE
@@ -84,9 +90,12 @@ void MAIN {
         }
         tile_regs_release();
 
-        cb_pop_front(cb_inp0, per_core_block_size);
-        cb_pop_front(cb_inp1, per_core_block_size);
-        cb_push_back(cb_out0, per_core_block_size);
+        // cb_pop_front(cb_inp0, per_core_block_size);
+        // cb_pop_front(cb_inp1, per_core_block_size);
+        // cb_push_back(cb_out0, per_core_block_size);
     }
+
+    }
+
 }
 }  // namespace NAMESPACE
