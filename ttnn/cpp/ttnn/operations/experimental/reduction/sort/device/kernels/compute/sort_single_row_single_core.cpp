@@ -192,6 +192,50 @@ void MAIN {
             }
         }
 
+        // BRAINSTORM: For sharding across same axis
+        // New parameters:
+        // other_core_x / other_core_y => need several
+        // semaphore
+        // number of tiles + start tile
+        // That means:
+        // New circular buffer ?
+        // New Reader/Writer kernel ?
+
+        // According to semaphore API: we push data into a destination buffer
+
+        // Getting a PoC quickly: version with 2 cores
+        // - (Each core has N pre= sorted tiles.)
+        // - Only a single row
+        // - We keep both loops separated (more 'boilerplate' but less interwinded logic)
+        // - We merge both parts: this can be done with elemnent-wise compare + applying another bitonic sort
+        // Do we use single circular buffer for both, or two circular buffers ?
+        // - Single buffer: keep program factory simple
+        // - Two buffers: keep kernel logic simple
+        //   We keep them separated so that we don't have to think about deadlocks if one core finishes before the other
+
+        // Beware with min/max => index should be updated accordingly
+
+        for (uint32_t i = 0; < Wt; i++) {
+            acquire_dst();
+
+            // Read local tile
+
+            copy_tile_to_dst_init_short_with_dt(index_tensor_transposed_cb_index, );
+
+            // Read 'remote' tile
+
+            // Take min or max (depend on ascending & core id)
+
+            // Write output tile
+
+            release_dst();
+        }
+
+        // Repeat local bitonic (only merger is necessary)
+        for (uint32_t stage = 0; stage <= stages; stage++) {
+            // ...
+        }
+
         cb_reserve_back(input_tensor_transposed_cb_index, Wt);
         cb_reserve_back(index_tensor_transposed_cb_index, Wt);
 
