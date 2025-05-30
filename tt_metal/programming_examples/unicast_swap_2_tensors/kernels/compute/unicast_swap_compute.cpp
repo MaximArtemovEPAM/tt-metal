@@ -40,19 +40,22 @@ void MAIN {
     copy_tile_to_dst_init_short(input1_cb_index);
     copy_tile(input1_cb_index, first_tile, TILE_INPUT1);
 
-    DPRINT << "[Math], tile input0 = \n";
-    dprint_tensix_dest_reg(TILE_INPUT0);
-    DPRINT << "[Math], tile input1 = \n";
-    dprint_tensix_dest_reg(TILE_INPUT1);
-
     tile_regs_acquire();
-    // MATH(dprint_tensix_dest_reg(TILE_INPUT0););
+    // DPRINT_MATH(DPRINT << "[Math], tile input0 = " << ENDL());
+    // dprint_tensix_dest_reg(TILE_INPUT0);
+    // DPRINT_MATH(DPRINT << "[Math], tile input1 = " << ENDL());
+    // dprint_tensix_dest_reg(TILE_INPUT1);
 
     DPRINT_MATH(DPRINT << "[Math] waiting before binary_max_tile" << ENDL());
 
     binary_max_tile_init();
     binary_max_tile(TILE_INPUT0, TILE_INPUT1);
     DPRINT_MATH(DPRINT << "[Math] binary_max_tile done" << ENDL());
+
+    DPRINT_MATH(DPRINT << "[Math], tile output = " << ENDL());
+
+    // DPRINT_MATH(DPRINT << "TILE OUTPUT = " << ENDL());
+    // dprint_tensix_dest_reg(TILE_INPUT0);
 
     tile_regs_commit();
 
@@ -62,7 +65,7 @@ void MAIN {
     // Write TILE_INPUT0 to output buffer
     tile_regs_wait();
     cb_reserve_back(output_cb_index, ONE_TILE);
-    pack_tile(TILE_INPUT1, output_cb_index);
+    pack_tile(TILE_INPUT0, output_cb_index);
     cb_push_back(output_cb_index, ONE_TILE);
 
     tile_regs_release();

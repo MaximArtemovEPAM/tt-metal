@@ -24,9 +24,6 @@ void kernel_main() {
     // uint32_t this_core_x = get_absolute_logical_x();
     // uint32_t this_core_y = get_absolute_logical_y();
 
-    DPRINT << "[Reader " << this_core_x << "] start" << ENDL();
-    DPRINT << "[Reader " << this_core_x << "] other core = " << other_core_x << ", sem input " << sem_input << ENDL();
-
     // Read 1 tile from sharded buffer
     // Push and read tile from other buffer
 
@@ -41,6 +38,13 @@ void kernel_main() {
 
     const InterleavedAddrGenFast<false> l1_input_addrg = {
         .bank_base_address = input_addr, .page_size = input_tile_size, .data_format = input_dataformat};
+
+    uint64_t global_input_addr = get_noc_addr(this_core_x, this_core_y, input_addr);
+
+    DPRINT << "[Reader " << this_core_x << "] start" << ENDL();
+    DPRINT << "[Reader " << this_core_x << "] other core = " << other_core_x << ", sem input " << sem_input << ENDL();
+    // DPRINT << "[Reader " << this_core_x << "] input addr = " << input_addr << ", global = " << global_input_addr <<
+    // ENDL();
 
     // Setup semaphore
     uint64_t sem_input_remote_addr = get_noc_addr(other_core_x, other_core_y, sem_input);
@@ -64,9 +68,13 @@ void kernel_main() {
     cb_reserve_back(input_other_cb_index, one_tile);
 
     const uint32_t input_other_addr = get_write_ptr(input_other_cb_index);  // Local address
-
     const uint32_t input_cb_addr = get_read_ptr(input_cb_index);
+
+    const uint64_t input_other_global_addr = get_noc_addr(this_core_x, this_core_y, input_other_addr);
     const uint64_t input_remote_addr = get_noc_addr(other_core_x, other_core_y, input_other_addr);
+
+    DPRINT << "[Reader " << this_core_x << "], other_cb local addr = " << input_other_addr
+           << ", global addr = " << input_other_global_addr << ", remote addr = " << input_remote_addr << ENDL();
 
     // We could put unicast code in a separate loop, but we'd need another circular buffer
     // TODO: Move this to a function

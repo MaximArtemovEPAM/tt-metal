@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <thread>
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/tt_metal.hpp>
 #include <tt-metalium/command_queue.hpp>
@@ -28,7 +29,7 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
     const auto core0_physical_coord = device->worker_core_from_logical_core(core0);
     const auto core1_physical_coord = device->worker_core_from_logical_core(core1);
 
-    constexpr uint32_t tile_size = tt::constants::TILE_HW;
+    constexpr uint32_t tile_size = tt::constants::TILE_HW * sizeof(float);
     std::cout << "tile size = " << tile_size << std::endl;
 
     // TODO: We also want core1 to have a semaphore
@@ -134,6 +135,9 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
     EnqueueProgram(cq, program, false);
     Finish(cq);
 
+    std::cout.flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     std::vector<float> results0;
     std::vector<float> results1;
 
@@ -165,8 +169,8 @@ int main(int argc, char** argv) {
     std::vector<float> input0 = {1, 2, 3, 4, 5, 6, 7, 8};
     std::vector<float> input1 = {-1, -2, -3, -4, -5, -6, -7, -8};
 
-    input0.resize(256, 0);
-    input1.resize(256, 0);
+    input0.resize(1024, 0);
+    input1.resize(1024, 0);
 
     unicast_swap(device, input0, input1);
 
