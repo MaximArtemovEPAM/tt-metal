@@ -55,9 +55,6 @@ void unicast_swap(
 
     const uint32_t dram_buffer_size = roundup_kpow2(input0.size() * sizeof(DataType), tile_size);
 
-    std::cout << "dram buffer size = " << dram_buffer_size << std::endl;
-    std::cout << "tile size = " << tile_size << std::endl;
-
     InterleavedBufferConfig dram_config{
         .device = device, .size = dram_buffer_size, .page_size = tile_size, .buffer_type = BufferType::DRAM};
 
@@ -86,8 +83,6 @@ void unicast_swap(
     constexpr uint32_t tiles_per_cb = 4;
     constexpr uint32_t cb_size = tile_size * tiles_per_cb;
 
-    std::cout << "cb size = " << cb_size << std::endl;
-
     const CircularBufferConfig input_cb_config =
         CircularBufferConfig(cb_size, {{input_cb_idx, input_cb_dataformat}}).set_page_size(input_cb_idx, tile_size);
 
@@ -106,7 +101,6 @@ void unicast_swap(
     CBHandle output_cb = CreateCircularBuffer(program, core_set, output_cb_config);
 
     const uint32_t num_tiles = input0.size() / tt::constants::TILE_HW;
-    std::cout << "num tiles = " << num_tiles << std::endl;
 
     // === KERNEL SETUP ===
     std::vector<uint32_t> reader_compile_time_args = {input_cb_idx, input_other_cb_idx, num_tiles, grid.x, grid.y};

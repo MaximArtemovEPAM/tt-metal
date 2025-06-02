@@ -32,12 +32,6 @@ void MAIN {
     // Read two tiles and write one
     // Performs: oupput[i] = max(input0[i], input1[i])
 
-    UNPACK(DPRINT << "[Unpack] starting" << ENDL());
-    MATH(DPRINT << "[Math] starting" << ENDL());
-    PACK(DPRINT << "[Pack] starting" << ENDL());
-
-    MATH(DPRINT << "[MATH] num tiles = " << num_tiles << ENDL());
-
     for (uint32_t i = 0; i < num_tiles; i++) {
         cb_wait_front(input0_cb_index, ONE_TILE);
         cb_wait_front(input1_cb_index, ONE_TILE);
@@ -49,7 +43,6 @@ void MAIN {
         copy_tile(input1_cb_index, first_tile, TILE_INPUT1);
 
         tile_regs_acquire();
-        // dprint_tensix_dest_reg(TILE_INPUT1);
 
         if (select_min) {
             binary_min_tile_init();
@@ -72,9 +65,5 @@ void MAIN {
 
         tile_regs_release();
     }
-
-    UNPACK(DPRINT << "[Unpack] finished" << ENDL());
-    MATH(DPRINT << "[Math] finished" << ENDL());
-    PACK(DPRINT << "[Pack] finished" << ENDL());
 }
 }  // namespace NAMESPACE

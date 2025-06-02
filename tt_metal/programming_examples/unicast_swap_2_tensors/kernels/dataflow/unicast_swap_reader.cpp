@@ -11,18 +11,7 @@ constexpr uint32_t compute_core_id(uint32_t core_x, uint32_t core_y, uint32_t gr
     return core_x + core_y * grid_size_x;
 }
 
-void print_tile_row0(uint32_t tile_addr) {
-    DPRINT << "tile = [";
-    const float* ptr = (float*)tile_addr;
-    for (int i = 0; i < 32; i++) {
-        DPRINT << ptr[i] << " ";
-    }
-    DPRINT << "]";
-}
-
 void kernel_main() {
-    DPRINT << "[Reader] starting" << ENDL();
-
     const uint32_t input_dram_addr = get_arg_val<uint32_t>(0);
     const uint32_t intermed_sram_addr = get_arg_val<uint32_t>(1);
     const uint32_t sem_input = get_semaphore(get_arg_val<uint32_t>(2));
@@ -38,8 +27,6 @@ void kernel_main() {
     constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(4);
 
     constexpr uint32_t one_tile = 1;
-
-    DPRINT << "[Reader] arguments parsed" << ENDL();
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
@@ -72,12 +59,6 @@ void kernel_main() {
     const uint64_t intermed_this_noc_addr = get_noc_addr(this_core_x, this_core_y, intermed_sram_addr);
 
     for (uint32_t i = 0; i < num_tiles; i++) {
-        // Copy tile from input buffer into circular buffer
-        DPRINT << "[Reader " << this_core_id << "] #" << i << "/" << num_tiles << ENDL();
-
-        // 1) Read tile from DRAM and store into temp SRAM buffer
-        // 2) Copy tile into circular buffer
-
         cb_reserve_back(input_cb_index, one_tile);
         const uint32_t input_cb_write_addr = get_write_ptr(input_cb_index);
 
@@ -89,10 +70,6 @@ void kernel_main() {
         uint32_t input_other_cb_write_addr = get_write_ptr(input_other_cb_index);
         uint64_t input_other_this_noc_addr = get_noc_addr(this_core_x, this_core_y, input_other_cb_write_addr);
         uint64_t input_other_noc_addr = get_noc_addr(other_core_x, other_core_y, input_other_cb_write_addr);
-
-        DPRINT << "[Reader " << this_core_id << "] input_other addr = " << input_other_cb_write_addr
-               << ", this noc addr = " << input_other_this_noc_addr << ", noc addr = " << input_other_noc_addr
-               << ENDL();
 
         if (this_core_id < other_core_id) {  // total order => avoid deadlocks
             // Write remote first / read then
@@ -150,11 +127,6 @@ void kernel_main() {
         // noc_async_write(intermed_sram_addr, input_other_cb_write_addr, input_tile_size);
         // noc_async_write_barrier();
 
-        print_tile_row0(input_other_cb_write_addr);
-        DPRINT << ENDL();
-
         cb_push_back(input_other_cb_index, one_tile);
-
-        DPRINT << "[Reader " << this_core_id << "] finished with loop #" << i << "/" << num_tiles << ENDL();
     }
 }
