@@ -114,19 +114,8 @@ void kernel_main() {
             // notify other that data has been written
             noc_semaphore_inc(sem_input_other_noc_addr, 1);
         }
+
         cb_push_back(input_cb_index, one_tile);
-
-        // Temp Buffer => Circular buffer
-        // cb_reserve_back(input_other_cb_index, one_tile);
-
-        // Put temporary data into circular buffer
-        // Technically, we could also have copied data directly to circular buffer but that would mean making sure
-        // we are not having any data-race with both the reader and the unpacker
-        // uint32_t input_other_cb_write_addr = get_write_ptr(input_other_cb_index);
-
-        // noc_async_write(intermed_sram_addr, input_other_cb_write_addr, input_tile_size);
-        // noc_async_write_barrier();
-
         cb_push_back(input_other_cb_index, one_tile);
     }
 }
