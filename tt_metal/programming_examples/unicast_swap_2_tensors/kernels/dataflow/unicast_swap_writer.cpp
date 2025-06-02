@@ -11,6 +11,7 @@ void kernel_main() {
     uint32_t output_addr = get_arg_val<uint32_t>(0);
 
     const uint32_t input_cb_index = get_compile_time_arg_val(0);
+    const uint32_t num_iterations = get_compile_time_arg_val(1);
 
     constexpr uint32_t ONE_TILE = 1;
 
@@ -22,24 +23,14 @@ void kernel_main() {
 
     constexpr uint32_t first_tile = 0;
 
-    DPRINT << "[Writer] waiting for tile" << ENDL();
-    cb_wait_front(input_cb_index, ONE_TILE);
+    for (uint32_t i = 0; i < num_iterations; i++) {
+        cb_wait_front(input_cb_index, ONE_TILE);
 
-    uint32_t l1_read_addr = get_read_ptr(input_cb_index);
+        uint32_t l1_read_addr = get_read_ptr(input_cb_index);
 
-    // Display tile
-    // DPRINT << "[Writer] TILE = \n";
-    // float* ptr = (float*)l1_read_addr;
-    // for (uint32_t i = 0; i < output_tile_bytes / sizeof(float); i++) {
-    //     DPRINT << " " << ptr[i];
-    // }
-    // DPRINT << ENDL();
+        noc_async_write_tile(first_tile, l1_output_addrg, l1_read_addr);
+        noc_async_write_barrier();
 
-    DPRINT << "[Writer] writing tile" << ENDL();
-    noc_async_write_tile(first_tile, l1_output_addrg, l1_read_addr);
-    noc_async_write_barrier();
-
-    cb_pop_front(input_cb_index, ONE_TILE);
-
-    DPRINT << "[Writer] finished" << ENDL();
+        cb_pop_front(input_cb_index, ONE_TILE);
+    }
 }

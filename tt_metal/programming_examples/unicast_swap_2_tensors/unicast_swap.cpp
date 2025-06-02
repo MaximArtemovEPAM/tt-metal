@@ -18,24 +18,24 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
     using namespace tt;
     using namespace tt::tt_metal;
 
-    std::cout << "-- unicast_swap --" << std::endl;
+    constexpr uint32_t tile_size = tt::constants::TILE_HW * sizeof(float);
 
     CommandQueue& cq = device->command_queue();
     Program program = CreateProgram();
 
+    // === CORE SETUP ===
     constexpr CoreCoord core0 = {0, 0};
     constexpr CoreCoord core1 = {1, 0};
 
     const auto core0_physical_coord = device->worker_core_from_logical_core(core0);
     const auto core1_physical_coord = device->worker_core_from_logical_core(core1);
 
-    constexpr uint32_t tile_size = tt::constants::TILE_HW * sizeof(float);
-    std::cout << "tile size = " << tile_size << std::endl;
-
-    // TODO: We also want core1 to have a semaphore
     CoreRangeSet core_set({CoreRange(core0, core1)});
+
+    // == SEMAPHORE SETUP ===
     const uint32_t sem_id = CreateSemaphore(program, core_set, 0);
 
+    // === BUFFER SETUP ===
     InterleavedBufferConfig dram_config{
         .device = device, .size = tile_size, .page_size = tile_size, .buffer_type = BufferType::DRAM};
     InterleavedBufferConfig sram_config{
@@ -47,6 +47,7 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
     std::shared_ptr<Buffer> input0_sram_buffer = CreateBuffer(sram_config);
     std::shared_ptr<Buffer> input1_sram_buffer = CreateBuffer(sram_config);
 
+    // Write to buffers
     EnqueueWriteBuffer(cq, input0_sram_buffer, input0.data(), false);
     EnqueueWriteBuffer(cq, input1_sram_buffer, input1.data(), false);
 
@@ -78,10 +79,12 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
     CBHandle input_other_cb = CreateCircularBuffer(program, core_set, input_other_cb_config);
     CBHandle output_cb = CreateCircularBuffer(program, core_set, output_cb_config);
 
-    // Define compile time arguments
-    std::vector<uint32_t> reader_compile_time_args = {input_cb_idx, input_other_cb_idx};
-    std::vector<uint32_t> writer_compile_time_args = {output_cb_idx};
-    std::vector<uint32_t> compute_compile_time_args = {input_cb_idx, input_other_cb_idx, output_cb_idx};
+    constexpr uint32_t NUM_ITERATIONS = 100000;
+
+    // === KERNEL SETUP ===
+    std::vector<uint32_t> reader_compile_time_args = {input_cb_idx, input_other_cb_idx, NUM_ITERATIONS};
+    std::vector<uint32_t> writer_compile_time_args = {output_cb_idx, NUM_ITERATIONS};
+    std::vector<uint32_t> compute_compile_time_args = {input_cb_idx, input_other_cb_idx, output_cb_idx, NUM_ITERATIONS};
 
     // Load kernels
     const std::string reader_kernel_path =
@@ -132,12 +135,11 @@ void unicast_swap(IDevice* device, const std::vector<float>& input0, const std::
         SetRuntimeArgs(program, compute_kernel_id, core1, {});
     }
 
+    // === LAUNCH KERNEL ===
     EnqueueProgram(cq, program, false);
     Finish(cq);
 
-    std::cout.flush();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
+    // === READ RESULTS ===
     std::vector<float> results0;
     std::vector<float> results1;
 
@@ -166,8 +168,8 @@ int main(int argc, char** argv) {
     int device_id = 0;
     IDevice* device = CreateDevice(device_id);
 
-    std::vector<float> input0 = {1, 2, 3, 4, 5, 6, 7, 8};
-    std::vector<float> input1 = {-1, -2, -3, -4, -5, -6, -7, -8};
+    std::vector<float> input0 = {1, -2, -3, 4, -5, -6, 7, -8};
+    std::vector<float> input1 = {-1, 2, 3, -4, 5, 6, -7, 8};
 
     input0.resize(1024, 0);
     input1.resize(1024, 0);
