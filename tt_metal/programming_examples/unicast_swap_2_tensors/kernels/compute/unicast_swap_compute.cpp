@@ -18,7 +18,8 @@ void MAIN {
     constexpr uint32_t input0_cb_index = get_compile_time_arg_val(0);
     constexpr uint32_t input1_cb_index = get_compile_time_arg_val(1);
     constexpr uint32_t output_cb_index = get_compile_time_arg_val(2);
-    constexpr uint32_t num_iterations = get_compile_time_arg_val(3);
+    constexpr uint32_t num_tiles = get_compile_time_arg_val(3);
+    constexpr bool select_min = (get_compile_time_arg_val(4) == 1);
 
     constexpr uint32_t ONE_TILE = 1;
     uint32_t first_tile = 0;
@@ -31,7 +32,13 @@ void MAIN {
     // Read two tiles and write one
     // Performs: oupput[i] = max(input0[i], input1[i])
 
-    for (uint32_t i = 0; i < num_iterations; i++) {
+    UNPACK(DPRINT << "[Unpack] starting" << ENDL());
+    MATH(DPRINT << "[Math] starting" << ENDL());
+    PACK(DPRINT << "[Pack] starting" << ENDL());
+
+    MATH(DPRINT << "[MATH] num tiles = " << num_tiles << ENDL());
+
+    for (uint32_t i = 0; i < num_tiles; i++) {
         cb_wait_front(input0_cb_index, ONE_TILE);
         cb_wait_front(input1_cb_index, ONE_TILE);
 
@@ -42,8 +49,16 @@ void MAIN {
         copy_tile(input1_cb_index, first_tile, TILE_INPUT1);
 
         tile_regs_acquire();
-        binary_max_tile_init();
-        binary_max_tile(TILE_INPUT0, TILE_INPUT1);
+        // dprint_tensix_dest_reg(TILE_INPUT1);
+
+        if (select_min) {
+            binary_min_tile_init();
+            binary_min_tile(TILE_INPUT0, TILE_INPUT1);
+        } else {
+            binary_max_tile_init();
+            binary_max_tile(TILE_INPUT0, TILE_INPUT1);
+        }
+
         tile_regs_commit();
 
         cb_pop_front(input1_cb_index, ONE_TILE);
@@ -57,5 +72,9 @@ void MAIN {
 
         tile_regs_release();
     }
+
+    UNPACK(DPRINT << "[Unpack] finished" << ENDL());
+    MATH(DPRINT << "[Math] finished" << ENDL());
+    PACK(DPRINT << "[Pack] finished" << ENDL());
 }
 }  // namespace NAMESPACE
