@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <numeric>
 #include <random>
 #include <thread>
 #include <cassert>
@@ -227,7 +228,7 @@ int main(int argc, char** argv) {
     int device_id = 0;
     IDevice* device = CreateDevice(device_id);
 
-    constexpr size_t len = 4096;
+    constexpr size_t len = 1024;
 
     std::vector<float> input0(len);
     std::vector<float> input1(len);
@@ -237,6 +238,10 @@ int main(int argc, char** argv) {
 
     generate_randint(input0, 0);
     generate_randint(input1, 1);
+
+    // For easier debugging
+    // std::iota(input0.begin(), input0.end(), 0);
+    // std::iota(input1.begin(), input1.end(), -static_cast<float>(len));
 
     unicast_swap(device, input0, input1, output0, output1);
 
