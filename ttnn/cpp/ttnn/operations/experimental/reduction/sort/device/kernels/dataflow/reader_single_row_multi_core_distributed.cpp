@@ -6,6 +6,7 @@
 #include "dataflow_api.h"
 
 #include "debug/dprint.h"
+#include "sort_distributed_common.hpp"
 
 /*
 To improve performance of both reader and writer kernels the work has been split so that they both prepare input and

@@ -80,10 +80,12 @@ void MAIN {
     constexpr uint32_t index_tensor_transposed_cb_index = get_compile_time_arg_val(3);
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(4);
     constexpr uint32_t index_tensor_output_cb_index = get_compile_time_arg_val(5);
-    constexpr uint32_t Wt = get_compile_time_arg_val(6);
-    constexpr bool descending = get_compile_time_arg_val(7);
+    constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(6);  // TO-ADD
+
+    constexpr uint32_t Wt = get_compile_time_arg_val(7);
+    constexpr bool descending = get_compile_time_arg_val(8);
     constexpr bool stable =
-        get_compile_time_arg_val(8);  // TODO: In the future change LLK to have the option or add additional step with
+        get_compile_time_arg_val(9);  // TODO: In the future change LLK to have the option or add additional step with
                                       // checking values and indexes after the sorting
                                       // Issue: https://github.com/tenstorrent/tt-metal/issues/20625
 
@@ -191,6 +193,81 @@ void MAIN {
                 }
             }
         }
+
+        cb_reserve_back(input_tensor_transposed_cb_index, Wt);
+        cb_reserve_back(index_tensor_transposed_cb_index, Wt);
+
+        cb_pop_front(input_tensor_transposed_cb_index, Wt);
+        cb_pop_front(index_tensor_transposed_cb_index, Wt);
+
+        cb_push_back(input_tensor_transposed_cb_index, Wt);
+        cb_push_back(index_tensor_transposed_cb_index, Wt);
+
+        // Second phase: use second circular buffer
+        // 1. read 2 tiles from input_tensor_cb / input_other_cb
+        // 2. run minmax on tensors
+
+        const uint32_t TILE_INPUT0 = 0;
+        const uint32_t TILE_INPUT1 = 1;
+
+        // TODO: exchange indices
+        // TODO: Since minmax does not guarantee a stable sort, we will have to figure something else
+
+        // Current prototype:
+        // - 2 cores, 1D tensor
+        // - Sort + min
+
+        binary_op_init_common(TILE_INPUT0, TILE_INPUT1, TILE_INPUT0);
+
+        constexpr bool select_min = true;  // TODO: Compute select_min from core_id (within row) and stage
+
+        // TODO: Replace value tensor with transposed_tensor
+        // TODO: value tensor should only be used at the very end
+        // Second phase:
+        // 1) re-iterate through value_tensor_cb
+        // 2) apply min/max on it with value_other_cb
+        // 3) Re-built bitonic sequence
+        for (uint32_t i = 0; i < Wt; i++) {
+            cb_wait_front(value_tensor_other_cb_index, one_tile);
+            cb_reserve_back(value_tensor_cb_index, one_tile);  // from start to finish
+
+            copy_tile_to_dst_init_short(value_tensor_other_cb_index, one_tile);
+            copy_tile(value_tensor_other_cb_index, first_tile, TILE_INPUT1);
+
+            copy_tile_to_dst_init_short(value_tensor_cb_index);
+            copy_tile(value_tensor_cb_index, first_tile, TILE_INPUT0);
+
+            tile_regs_acquire();
+            if (select_min) {
+                binary_min_tile_init();
+                binary_min_tile(TILE_INPUT0, TILE_INPUT1);
+            } else {
+                binary_max_tile_init();
+                binary_max_tile(TILE_INPUT0, TILE_INPUT1);
+            }
+
+            tile_regs_commit();
+
+            tile_regs_wait();
+            pack_tile<true>(TILE_INPUT0, value_tensor_cb_index, i);
+            tile_regs_release();
+
+            cb_push_back(value_tensor_cb_index, one_tile);
+
+            cb_pop_front(value_tensor_other_cb_index, one_tile);
+        }
+        // Repeat local sort (bitonic sequence + merge)
+        // This is a naive approach, we could probably do something better
+
+        // Bitonic done => Write data back
+
+        // Write everything into value tensor
+        // Values tensor
+        transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt);
+
+        // Indexes tensor
+        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt);
+
     }  // Ht loop
 }
 
