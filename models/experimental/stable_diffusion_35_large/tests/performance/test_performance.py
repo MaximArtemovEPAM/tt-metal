@@ -90,10 +90,19 @@ def test_layernorm_scale_shift():
     [
         [1024, 2560, 1920],
         [352, 2560, 1920],
+        [1024, 2560, 640],
+        [352, 2560, 640],
         [1024, 2560, 2560],
         [352, 2560, 2560],
     ],
-    ids=["attn_proj_spatial_tp4", "attn_proj_prompt_tp4", "mlp_spatial_tp4", "mlp_prompt_tp4"],
+    ids=[
+        "attn_proj_spatial_tp4",
+        "attn_proj_prompt_tp4",
+        "attn_out_proj_spatial_tp4",
+        "attn_out_proj_prompt_tp4",
+        "mlp_spatial_tp4",
+        "mlp_prompt_tp4",
+    ],
 )
 def test_sweep_dram_matmul(device, use_program_cache, M, K, N):
     """
@@ -153,10 +162,19 @@ def test_sweep_dram_matmul(device, use_program_cache, M, K, N):
     [
         [1024, 2560, 1920],
         [352, 2560, 1920],
+        [1024, 2560, 640],
+        [352, 2560, 640],
         [1024, 2560, 2560],
         [352, 2560, 2560],
     ],
-    ids=["attn_proj_spatial_tp4", "attn_proj_prompt_tp4", "mlp_spatial_tp4", "mlp_prompt_tp4"],
+    ids=[
+        "attn_proj_spatial_tp4",
+        "attn_proj_prompt_tp4",
+        "attn_out_proj_spatial_tp4",
+        "attn_out_proj_prompt_tp4",
+        "mlp_spatial_tp4",
+        "mlp_prompt_tp4",
+    ],
 )
 @pytest.mark.parametrize("shard_grid", [(i, j) for i in range(1, 9) for j in range(1, 9)])
 def test_sweep_block_sharded_matmul(device, use_program_cache, M, K, N, shard_grid):
