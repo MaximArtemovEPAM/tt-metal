@@ -191,6 +191,21 @@ void MAIN {
                 }
             }
         }
+
+        cb_reserve_back(input_tensor_transposed_cb_index, Wt);
+        cb_reserve_back(index_tensor_transposed_cb_index, Wt);
+
+        cb_pop_front(input_tensor_transposed_cb_index, Wt);
+        cb_pop_front(index_tensor_transposed_cb_index, Wt);
+
+        cb_push_back(input_tensor_transposed_cb_index, Wt);
+        cb_push_back(index_tensor_transposed_cb_index, Wt);
+
+        // Values tensor
+        transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt);
+
+        // Indexes tensor
+        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt);
     }  // Ht loop
 }
 
