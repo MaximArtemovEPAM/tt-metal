@@ -73,7 +73,7 @@ size_t get_tt_fabric_max_payload_size_bytes() {
     return control_plane.get_fabric_context().get_fabric_max_payload_size_bytes();
 }
 
-ControlPlane& get_control_plane() { return tt::tt_metal::MetalContext::instance().get_control_plane(); }
+const ControlPlane& get_control_plane() { return tt::tt_metal::MetalContext::instance().get_control_plane(); }
 
 FabricNodeId get_fabric_node_id_from_physical_chip_id(chip_id_t physical_chip_id) {
     const auto& control_plane = tt::tt_metal::MetalContext::instance().get_control_plane();
