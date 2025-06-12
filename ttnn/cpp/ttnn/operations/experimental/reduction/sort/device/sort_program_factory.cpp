@@ -7,6 +7,7 @@
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/util.hpp>
+#include "tt-metalium/core_coord.hpp"
 
 namespace ttnn::operations::experimental::reduction::sort::program {
 
@@ -632,8 +633,15 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     const uint32_t total_number_of_cores = compute_with_storage_grid_size.y * compute_with_storage_grid_size.x;
 
     // Calculate the number of cores utilized based on the input tensor shape
-    const uint32_t all_core_utilization_loop_count = Ht / total_number_of_cores;
+    // const uint32_t all_core_utilization_loop_count = Ht / total_number_of_cores;
     const uint32_t all_core_utilization_loop_residuum = Ht % total_number_of_cores;
+
+    // For now: set number of cores to 2, and assume Wt % 2 == 0 (no residuum)
+    const uint32_t all_core_utilization_loop_count = Wt / 2;
+
+    std::cout << "total number of cores = " << total_number_of_cores << std::endl;
+    std::cout << "Wt = " << Wt << ", Ht = " << Ht << ", loop count = " << all_core_utilization_loop_count
+              << ", loop residuum = " << all_core_utilization_loop_residuum << std::endl;
 
     // Calculate core range
     /**
@@ -656,28 +664,40 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
      * objects depending on the configuration.
      */
     CoreRangeSet core_range;
-    if (Ht >= total_number_of_cores) {
-        core_range = CoreRangeSet(
-            CoreRange({0, 0}, {compute_with_storage_grid_size.x - 1, compute_with_storage_grid_size.y - 1}));
+    if (Wt > 1) {
+        core_range = CoreRangeSet(CoreRange(CoreCoord(0, 0), CoreCoord(1, 0)));  // only use two cores for now
     } else {
-        const uint32_t core_grid_calculated_rows_number = Ht / compute_with_storage_grid_size.x;
-        const uint32_t core_grid_calculated_columns_number = Ht % compute_with_storage_grid_size.x;
-
-        if (core_grid_calculated_rows_number == 0 && core_grid_calculated_columns_number == 0) {
-            core_range = CoreRangeSet(CoreCoord({0, 0}));
-        } else if (core_grid_calculated_rows_number == 0) {
-            core_range = CoreRangeSet(CoreRange({0, 0}, {core_grid_calculated_columns_number - 1, 0}));
-        } else {
-            core_range = CoreRangeSet(
-                CoreRange({0, 0}, {compute_with_storage_grid_size.x - 1, core_grid_calculated_rows_number - 1}));
-            if (core_grid_calculated_columns_number != 0) {
-                const CoreRange additional_range(
-                    {0, core_grid_calculated_rows_number},
-                    {core_grid_calculated_columns_number, core_grid_calculated_rows_number});
-                core_range = core_range.merge(CoreRangeSet(additional_range));
-            }
-        }
+        core_range = CoreRangeSet(CoreCoord(0, 0));
     }
+
+    const uint32_t CORE_COUNT = 2;
+    const uint32_t Wt_per_core = Wt / CORE_COUNT;
+
+    // if (Ht >= total_number_of_cores) {
+    //     core_range = CoreRangeSet(
+    //         CoreRange({0, 0}, {compute_with_storage_grid_size.x - 1, compute_with_storage_grid_size.y - 1}));
+    // } else {
+    //     const uint32_t core_grid_calculated_rows_number = Ht / compute_with_storage_grid_size.x;
+    //     const uint32_t core_grid_calculated_columns_number = Ht % compute_with_storage_grid_size.x;
+
+    //     if (core_grid_calculated_rows_number == 0 && core_grid_calculated_columns_number == 0) {
+    //         core_range = CoreRangeSet(CoreCoord({0, 0}));
+    //     } else if (core_grid_calculated_rows_number == 0) {
+    //         core_range = CoreRangeSet(CoreRange({0, 0}, {core_grid_calculated_columns_number - 1, 0}));
+    //     } else {
+    //         core_range = CoreRangeSet(
+    //             CoreRange({0, 0}, {compute_with_storage_grid_size.x - 1, core_grid_calculated_rows_number - 1}));
+    //         if (core_grid_calculated_columns_number != 0) {
+    //             const CoreRange additional_range(
+    //                 {0, core_grid_calculated_rows_number},
+    //                 {core_grid_calculated_columns_number, core_grid_calculated_rows_number});
+    //             core_range = core_range.merge(CoreRangeSet(additional_range));
+    //         }
+    //     }
+    // }
+
+    // Semaphore setup
+    const uint32_t sem_value_id = CreateSemaphore(program, core_range, 0);
 
     // Circular buffers
     constexpr uint32_t input_tensor_cb_index = tt::CBIndex::c_0;
@@ -697,7 +717,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     constexpr uint32_t input_tensor_transposed_cb_index = tt::CBIndex::c_2;
     const tt::tt_metal::CircularBufferConfig input_tensor_transposed_cb_config =
         tt::tt_metal::CircularBufferConfig(
-            Wt * input_tensor_tile_size, {{input_tensor_transposed_cb_index, input_tensor_cb_data_format}})
+            Wt_per_core * input_tensor_tile_size, {{input_tensor_transposed_cb_index, input_tensor_cb_data_format}})
             .set_page_size(input_tensor_transposed_cb_index, input_tensor_tile_size);
     auto cb_input_tensor_transposed =
         tt::tt_metal::CreateCircularBuffer(program, core_range, input_tensor_transposed_cb_config);
@@ -705,7 +725,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     constexpr uint32_t index_tensor_transposed_cb_index = tt::CBIndex::c_3;
     const tt::tt_metal::CircularBufferConfig index_tensor_transposed_cb_config =
         tt::tt_metal::CircularBufferConfig(
-            Wt * index_tensor_tile_size, {{index_tensor_transposed_cb_index, index_tensor_cb_data_format}})
+            Wt_per_core * index_tensor_tile_size, {{index_tensor_transposed_cb_index, index_tensor_cb_data_format}})
             .set_page_size(index_tensor_transposed_cb_index, index_tensor_tile_size);
     auto cb_index_tensor_transposed =
         tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_transposed_cb_config);
@@ -725,6 +745,16 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     auto cb_index_tensor_output =
         tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_output_cb_config);
 
+    // NOTE: This CB only contain a single tile
+    constexpr uint32_t value_tensor_other_cb_index = tt::CBIndex::c_6;
+    const tt::tt_metal::CircularBufferConfig value_tensor_other_cb_config =
+        tt::tt_metal::CircularBufferConfig(
+            value_tensor_tile_size, {{value_tensor_other_cb_index, value_tensor_cb_data_format}})
+            .set_page_size(value_tensor_other_cb_index, value_tensor_tile_size);
+    auto cb_value_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, value_tensor_other_cb_config);
+
+    const uint32_t num_cores_y = compute_with_storage_grid_size.y;
+
     // Kernels
     const std::vector<uint32_t> reader_compile_time_args = {
         input_tensor_cb_index,
@@ -732,22 +762,24 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         static_cast<uint32_t>(input_tensor_is_dram),
         static_cast<uint32_t>(index_tensor_is_dram),
         Wt,
+        Wt_per_core,
         Ht,
         total_number_of_cores,
+        num_cores_y,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y};
     const std::string reader_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
-        "reader_single_row_single_core.cpp";
+        "reader_single_row_multi_core_distributed.cpp";
     tt::tt_metal::KernelHandle reader_kernel_id = tt::tt_metal::CreateKernel(
         program, reader_kernel_path, core_range, tt::tt_metal::ReaderDataMovementConfig{reader_compile_time_args});
-    SetRuntimeArgs(
-        program,
-        reader_kernel_id,
-        core_range,
-        {input_buffer->address(),
-         index_buffer->address(),
-         all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
+    // SetRuntimeArgs(
+    //     program,
+    //     reader_kernel_id,
+    //     core_range,
+    //     {input_buffer->address(),
+    //      index_buffer->address(),
+    //      all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
 
     const std::vector<uint32_t> writer_compile_time_args = {
         value_tensor_cb_index,
@@ -756,21 +788,23 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         value_tensor_cb_index,
         static_cast<uint32_t>(value_tensor_is_dram),
         Wt,
+        Wt_per_core,
         Ht,
         total_number_of_cores,
+        num_cores_y,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
-        sem_value_addr};  // TO-ADD
+        sem_value_id};
     const std::string writer_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
-        "writer_single_row_single_core.cpp";
+        "writer_single_row_multi_core_distributed.cpp";
     tt::tt_metal::KernelHandle writer_kernel_id = tt::tt_metal::CreateKernel(
         program, writer_kernel_path, core_range, tt::tt_metal::WriterDataMovementConfig{writer_compile_time_args});
-    SetRuntimeArgs(
-        program,
-        writer_kernel_id,
-        core_range,
-        {value_buffer->address(), all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
+    // SetRuntimeArgs(
+    //     program,
+    //     writer_kernel_id,
+    //     core_range,
+    //     {value_buffer->address(), all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
 
     const std::vector<uint32_t> compute_compile_time_args = {
         input_tensor_cb_index,
@@ -779,55 +813,119 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         index_tensor_transposed_cb_index,
         value_tensor_cb_index,
         index_tensor_output_cb_index,
-        value_tensor_other_cb_index,  // TO-ADD
+        value_tensor_other_cb_index,
         Wt,
+        Wt_per_core,
         static_cast<uint32_t>(attributes.descending),
         static_cast<uint32_t>(attributes.stable),
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y};
     const std::string compute_kernel_path =
-        "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/compute/sort_single_row_single_core.cpp";
+        "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/compute/"
+        "sort_single_row_multi_core_distributed.cpp";
     tt::tt_metal::KernelHandle compute_kernel_id = tt::tt_metal::CreateKernel(
         program,
         compute_kernel_path,
         core_range,
         tt::tt_metal::ComputeConfig{.compile_args = compute_compile_time_args});
-    SetRuntimeArgs(
-        program,
-        compute_kernel_id,
-        core_range,
-        {all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
+    // SetRuntimeArgs(
+    //     program,
+    //     compute_kernel_id,
+    //     core_range,
+    //     {all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
+
+    // const CoreCoord other_core = {1, 0};
+
+    std::cout << "loop count = " << all_core_utilization_loop_count << std::endl;
+    // For 2 cores
+    const CoreCoord core0 = {0, 0};
+    const CoreCoord core1 = {1, 0};
+    const CoreCoord physical_coord_core0 = device->worker_core_from_logical_core(core0);
+    const CoreCoord physical_coord_core1 = device->worker_core_from_logical_core(core1);
+    uint32_t loop_count = 0;
+
+    constexpr uint32_t PHYSICAL_GRID_SIZE_Y = 32;
+    {
+        SetRuntimeArgs(
+            program,
+            reader_kernel_id,
+            core0,
+            {input_buffer->address(), index_buffer->address(), all_core_utilization_loop_count});
+        SetRuntimeArgs(
+            program,
+            writer_kernel_id,
+            core0,
+            {value_buffer->address(),
+             all_core_utilization_loop_count,
+             physical_coord_core0.x,
+             physical_coord_core0.y,
+             physical_coord_core1.x,
+             physical_coord_core1.y});
+        SetRuntimeArgs(program, compute_kernel_id, core0, {all_core_utilization_loop_count});
+    }
+
+    {
+        SetRuntimeArgs(
+            program,
+            reader_kernel_id,
+            core1,
+            {input_buffer->address(), index_buffer->address(), all_core_utilization_loop_count});
+        SetRuntimeArgs(
+            program,
+            writer_kernel_id,
+            core1,
+            {value_buffer->address(),
+             all_core_utilization_loop_count,
+             physical_coord_core1.x,
+             physical_coord_core1.y,
+             physical_coord_core0.x,
+             physical_coord_core0.y});
+        SetRuntimeArgs(program, compute_kernel_id, core1, {all_core_utilization_loop_count});
+    }
 
     // TODO: For now, fix number of cores to 2 (TT_THROW if too much data)
-    if (all_core_utilization_loop_residuum != 0 && all_core_utilization_loop_count != 0) {
-        uint32_t residuum_count = 0;
-        for (uint32_t core_y = 0; core_y < compute_with_storage_grid_size.y; core_y++) {
-            for (uint32_t core_x = 0; core_x < compute_with_storage_grid_size.x; core_x++) {
-                const uint32_t new_loop_count = all_core_utilization_loop_count + 1;
-                const CoreCoord core = {core_x, core_y};
+    // if (all_core_utilization_loop_residuum != 0 && all_core_utilization_loop_count != 0) {
+    //     uint32_t residuum_count = 0;
+    //     for (uint32_t core_y = 0; core_y < compute_with_storage_grid_size.y; core_y++) {
+    //         for (uint32_t core_x = 0; core_x < compute_with_storage_grid_size.x; core_x++) {
+    //             const uint32_t new_loop_count = all_core_utilization_loop_count + 1;
+    //             const CoreCoord core = {core_x, core_y};
 
-                SetRuntimeArgs(
-                    program,
-                    reader_kernel_id,
-                    core,
-                    {input_buffer->address(), index_buffer->address(), new_loop_count});
+    //             const uint32_t this_core_id = core_x + core_y * compute_with_storage_grid_size.x;
 
-                SetRuntimeArgs(
-                    program,
-                    writer_kernel_id,
-                    core,
-                    {value_buffer->address(), new_loop_count, this_core_id, other_core_x, other_core_y});
+    //             const uint32_t other_core_x = core_x + 1; // assumes two cores
+    //             const uint32_t other_core_y = core_y;
 
-                SetRuntimeArgs(program, compute_kernel_id, core, {new_loop_count});
+    //             const CoreCoord other_core = {core_x + 1, core_y};
 
-                residuum_count++;
-                if (residuum_count >= all_core_utilization_loop_residuum) {
-                    core_y = compute_with_storage_grid_size.y;  // Break outer loop
-                    break;
-                }
-            }  // core_x loop
-        }  // core_y loop
-    }
+    //             const CoreCoord other_core_physical_coord = device->worker_core_from_logical_core(other_core);
+    //             std::cout << "Peer of core {" << core_x << ", " << core_y << "} is core {" << other_core_x << ", "
+    //                     << other_core_y << "} with phys. coords {" << other_core_physical_coord.x << ", " <<
+    //                     other_core_physical_coord.y << "}" << std::endl;
+
+    //             SetRuntimeArgs(
+    //                 program,
+    //                 reader_kernel_id,
+    //                 core,
+    //                 {input_buffer->address(), index_buffer->address(), new_loop_count});
+
+    //             SetRuntimeArgs(
+    //                 program,
+    //                 writer_kernel_id,
+    //                 core,
+    //                 {value_buffer->address(), new_loop_count, this_core_id, other_core_physical_coord.x,
+    //                 other_core_physical_coord.y});
+
+    //             SetRuntimeArgs(program, compute_kernel_id, core, {new_loop_count});
+
+    //             residuum_count++;
+    //             if (residuum_count >= all_core_utilization_loop_residuum) {
+    //                 core_y = compute_with_storage_grid_size.y;  // Break outer loop
+    //                 break;
+    //             }
+    //         }  // core_x loop
+    //     }  // core_y loop
+    // }
 
     return {
         std::move(program), {reader_kernel_id, compute_kernel_id, writer_kernel_id, compute_with_storage_grid_size}};

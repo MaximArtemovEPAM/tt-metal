@@ -7,9 +7,12 @@
 #include "compute_kernel_api/tile_move_copy.h"
 #include "compute_kernel_api/reconfig_data_format.h"
 #include "compute_kernel_api/pack.h"
+#include "compute_kernel_api/binary_max_min.h"
 #include "compute_kernel_api/eltwise_binary.h"
+#include "compute_kernel_api/eltwise_unary/eltwise_unary.h"
 
 #include "sort_common.hpp"
+#include "../sort_debug_common.hpp"
 
 #include "debug/dprint.h"
 
@@ -73,6 +76,8 @@ void MAIN {
     // Runtime args
     const uint32_t core_loop_count = get_arg_val<uint32_t>(0);
 
+    DPRINT << TERM_COMPUTE << "[Compute] starting..." << TERM_RESET << ENDL();
+
     // Compile time args
     constexpr uint32_t input_tensor_cb_index = get_compile_time_arg_val(0);
     constexpr uint32_t index_tensor_cb_index = get_compile_time_arg_val(1);
@@ -80,14 +85,15 @@ void MAIN {
     constexpr uint32_t index_tensor_transposed_cb_index = get_compile_time_arg_val(3);
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(4);
     constexpr uint32_t index_tensor_output_cb_index = get_compile_time_arg_val(5);
-    constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(6);  // TO-ADD
+    constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(6);
 
     constexpr uint32_t Wt = get_compile_time_arg_val(7);
-    constexpr bool descending = get_compile_time_arg_val(8);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(8);
+    constexpr bool descending = get_compile_time_arg_val(9);
     constexpr bool stable =
-        get_compile_time_arg_val(9);  // TODO: In the future change LLK to have the option or add additional step with
-                                      // checking values and indexes after the sorting
-                                      // Issue: https://github.com/tenstorrent/tt-metal/issues/20625
+        get_compile_time_arg_val(10);  // TODO: In the future change LLK to have the option or add additional step with
+                                       // checking values and indexes after the sorting
+                                       // Issue: https://github.com/tenstorrent/tt-metal/issues/20625
 
     constexpr uint32_t one_tile = 1;
 
@@ -96,36 +102,41 @@ void MAIN {
     constexpr uint32_t input_dest_end = 1;
     constexpr uint32_t index_dest_end = 3;
 
+    DPRINT_MATH(
+        DPRINT << TERM_COMPUTE << "[Compute] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core << TERM_RESET << ENDL());
+
     ckernel::topk_tile_init();
     transpose_wh_init(input_tensor_cb_index, input_tensor_transposed_cb_index);
 
     for (uint32_t core_loop = 0; core_loop < core_loop_count; core_loop++) {
         const bool ascending = !descending;
 
+        DPRINT << TERM_COMPUTE << "[Compute] building bitonic sequence..." << TERM_RESET << ENDL();
         sort_Wt_tiles_row_to_bitonic_sequence(
             input_tensor_cb_index,
             index_tensor_cb_index,
             input_tensor_transposed_cb_index,
             index_tensor_transposed_cb_index,
-            Wt,
+            Wt_per_core,
             /*switch_dir=*/true,
             ascending,
             /*end_phase(log2(K))=*/5);
 
+        DPRINT << TERM_COMPUTE << "[Compute] built bitonic sequence" << TERM_RESET << ENDL();
         // Wait for bitonic sequence of Wt tiles
         cb_wait_front(input_tensor_transposed_cb_index, Wt);
         cb_wait_front(index_tensor_transposed_cb_index, Wt);
 
         // Sort and merge step of bitonic merge sort
         uint32_t stages = 0;
-        for (uint32_t i = Wt; i > 1; i >>= 1) {
+        for (uint32_t i = Wt_per_core; i > 1; i >>= 1) {
             stages++;
         }
 
         for (uint32_t stage = 2; stage <= stages; stage++) {
             for (uint32_t sub = stage; sub > 0; sub--) {
                 uint32_t sub_dist = 1 << (sub - 1);
-                for (uint32_t i = 0; i < Wt; i++) {
+                for (uint32_t i = 0; i < Wt_per_core; i++) {
                     uint32_t j = i ^ sub_dist;
                     if (j > i) {
                         // Determine direction for this comparison block
@@ -193,15 +204,16 @@ void MAIN {
                 }
             }
         }
+        DPRINT << TERM_COMPUTE << "[Compute] completed local sort, synchronizing" << TERM_RESET << ENDL();
 
-        cb_reserve_back(input_tensor_transposed_cb_index, Wt);
-        cb_reserve_back(index_tensor_transposed_cb_index, Wt);
+        cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_reserve_back(index_tensor_transposed_cb_index, Wt_per_core);
 
-        cb_pop_front(input_tensor_transposed_cb_index, Wt);
-        cb_pop_front(index_tensor_transposed_cb_index, Wt);
+        cb_pop_front(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_pop_front(index_tensor_transposed_cb_index, Wt_per_core);
 
-        cb_push_back(input_tensor_transposed_cb_index, Wt);
-        cb_push_back(index_tensor_transposed_cb_index, Wt);
+        cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
 
         // Second phase: use second circular buffer
         // 1. read 2 tiles from input_tensor_cb / input_other_cb
@@ -220,6 +232,9 @@ void MAIN {
         binary_op_init_common(TILE_INPUT0, TILE_INPUT1, TILE_INPUT0);
 
         constexpr bool select_min = true;  // TODO: Compute select_min from core_id (within row) and stage
+        constexpr uint32_t FIRST_TILE = 0;
+
+        DPRINT << TERM_COMPUTE << "[Compute] finished local sorting" << TERM_RESET << ENDL();
 
         // TODO: Replace value tensor with transposed_tensor
         // TODO: value tensor should only be used at the very end
@@ -227,17 +242,19 @@ void MAIN {
         // 1) re-iterate through value_tensor_cb
         // 2) apply min/max on it with value_other_cb
         // 3) Re-built bitonic sequence
-        for (uint32_t i = 0; i < Wt; i++) {
+        for (uint32_t i = 0; i < Wt_per_core; i++) {
             cb_wait_front(value_tensor_other_cb_index, one_tile);
             cb_reserve_back(value_tensor_cb_index, one_tile);  // from start to finish
 
             copy_tile_to_dst_init_short(value_tensor_other_cb_index, one_tile);
-            copy_tile(value_tensor_other_cb_index, first_tile, TILE_INPUT1);
+            copy_tile(value_tensor_other_cb_index, FIRST_TILE, TILE_INPUT1);
 
             copy_tile_to_dst_init_short(value_tensor_cb_index);
-            copy_tile(value_tensor_cb_index, first_tile, TILE_INPUT0);
+            copy_tile(value_tensor_cb_index, FIRST_TILE, TILE_INPUT0);
 
             tile_regs_acquire();
+            DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] math running min/max" << TERM_RESET << ENDL());
+
             if (select_min) {
                 binary_min_tile_init();
                 binary_min_tile(TILE_INPUT0, TILE_INPUT1);
@@ -256,6 +273,8 @@ void MAIN {
 
             cb_pop_front(value_tensor_other_cb_index, one_tile);
         }
+        DPRINT << TERM_COMPUTE << "[Compute] finished min/max" << TERM_RESET << ENDL();
+
         // Repeat local sort (bitonic sequence + merge)
         // This is a naive approach, we could probably do something better
 
@@ -263,12 +282,13 @@ void MAIN {
 
         // Write everything into value tensor
         // Values tensor
-        transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt);
+        transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt_per_core);
 
         // Indexes tensor
-        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt);
+        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
 
     }  // Ht loop
+    DPRINT << TERM_COMPUTE << "[Compute] completed" << TERM_RESET << ENDL();
 }
 
 }  // namespace NAMESPACE

@@ -7,6 +7,7 @@
 
 #include "debug/dprint.h"
 #include "sort_distributed_common.hpp"
+#include "../sort_debug_common.hpp"
 
 /*
 To improve performance of both reader and writer kernels the work has been split so that they both prepare input and
@@ -32,10 +33,12 @@ void kernel_main() {
     constexpr bool input_tensor_is_dram = get_compile_time_arg_val(2) == 1;
     constexpr bool index_tensor_is_dram = get_compile_time_arg_val(3) == 1;
     constexpr uint32_t Wt = get_compile_time_arg_val(4);
-    constexpr uint32_t Ht = get_compile_time_arg_val(5);
-    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(6);
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(7);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(8);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(5);
+    constexpr uint32_t Ht = get_compile_time_arg_val(6);
+    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(7);
+    constexpr uint32_t num_cores_y = get_compile_time_arg_val(8);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(9);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(10);
 
     // Input tensor config
     constexpr uint32_t one_tile = 1;
@@ -54,15 +57,22 @@ void kernel_main() {
         .page_size = index_tensor_output_tile_size_bytes,
         .data_format = index_tensor_output_data_format};
 
+    const uint32_t w_start = get_absolute_logical_x() * Wt_per_core;
+
+    DPRINT << TERM_READER << "[Reader] starting..." << TERM_RESET << ENDL();
+    DPRINT << TERM_READER << "[Reader] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core << ", w_start = " << w_start
+           << TERM_RESET << ENDL();
+
     for (uint32_t core_loop = 0; core_loop < core_loop_count; core_loop++) {
         // Calculate tile h coordinate
         // TODO: Adapt with new logic where more than 1 core can process row
         // Two cores must be able to process the same row, but
-        const uint32_t h = core_loop * total_number_of_cores +
-                           get_absolute_logical_y() * compute_with_storage_grid_size_x + get_absolute_logical_x();
+        // const uint32_t h = core_loop * total_number_of_cores +
+        //                    get_absolute_logical_y() * compute_with_storage_grid_size_x + get_absolute_logical_x();
+        const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
 
         // Read input value data
-        for (uint32_t w = 0; w < Wt; w++) {
+        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
             cb_reserve_back(input_tensor_cb_index, one_tile);
             const uint32_t l1_write_addr = get_write_ptr(input_tensor_cb_index);
             noc_async_read_tile(h * Wt + w, interleaved_accessor0, l1_write_addr);
@@ -71,7 +81,7 @@ void kernel_main() {
         }  // Wt loop
 
         // Write output index data
-        for (uint32_t w = 0; w < Wt; w++) {
+        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
             cb_wait_front(index_tensor_output_cb_index, one_tile);
             const uint32_t l1_write_addr_index = get_read_ptr(index_tensor_output_cb_index);
             noc_async_write_tile(h * Wt + w, interleaved_accessor1, l1_write_addr_index);
@@ -79,4 +89,6 @@ void kernel_main() {
             cb_pop_front(index_tensor_output_cb_index, one_tile);
         }  // Wt loop
     }  // core_loop_count loop
+
+    DPRINT << TERM_READER << "[Sort Reader] completing" << TERM_RESET << ENDL();
 }

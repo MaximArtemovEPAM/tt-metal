@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "../sort_debug_common.hpp"
+
 using sem_ptr_t = volatile tt_l1_ptr uint32_t*;
 
 constexpr uint32_t compute_core_id(uint32_t core_x, uint32_t core_y, uint32_t grid_size_x, uint32_t grid_size_y) {
@@ -19,7 +21,7 @@ constexpr uint32_t compute_core_id(uint32_t core_x, uint32_t core_y, uint32_t gr
  * @param other_core_id ID of the peer core to exchange with
  * @param sem_self_ptr Pointer to local semaphore in L1 memory
  * @param sem_input_other_noc_addr NOC address of peer's semaphore
- * @param input_cb_write_addr Local L1 address to write received data
+ * @param input_cb_read_addr Local L1 address where data is read from
  * @param input_other_noc_addr where to send data on the peer (NOC address)
  * @param input_tile_size Size of tile in bytes
  *
@@ -41,7 +43,7 @@ void sort_noc_exchange_tiles(
     uint32_t other_core_id,
     sem_ptr_t sem_self_ptr,
     uint64_t sem_input_other_noc_addr,
-    uint32_t input_cb_write_addr,
+    uint32_t input_cb_read_addr,
     uint64_t input_other_noc_addr,
     uint32_t input_tile_size) {
     if (this_core_id < other_core_id) {  // total order => avoid deadlocks
@@ -53,7 +55,7 @@ void sort_noc_exchange_tiles(
         noc_semaphore_set(sem_self_ptr, 0);  // reset semaphore
 
         // Peer is ready => send data
-        noc_async_write(input_cb_write_addr, input_other_noc_addr, input_tile_size);
+        noc_async_write(input_cb_read_addr, input_other_noc_addr, input_tile_size);
         noc_async_write_barrier();
 
         // Data has been sent and written => we are ready to receive
@@ -81,7 +83,7 @@ void sort_noc_exchange_tiles(
         noc_semaphore_set(sem_self_ptr, 0);  // reset semaphore
 
         // Send data
-        noc_async_write(input_cb_write_addr, input_other_noc_addr, input_tile_size);
+        noc_async_write(input_cb_read_addr, input_other_noc_addr, input_tile_size);
         noc_async_write_barrier();
 
         // notify other that data has been written

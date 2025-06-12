@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "sort_device_operation.hpp"
+#include "ttnn/operations/experimental/reduction/sort/device/sort_program_factory.hpp"
 
 using namespace tt::tt_metal;
 
@@ -15,6 +16,10 @@ SortDeviceOperation::program_factory_t SortDeviceOperation::select_program_facto
     const auto input_tensor_shape = tensor_args.input_tensor.padded_shape();
     const auto tile_width = tensor_args.input_tensor.tensor_spec().tile().get_width();
     const uint32_t Wt = input_tensor_shape[3] / tile_width;
+
+    // TEST
+    return sort::program::SortProgramFactorySingleRowMulticoreDistributed{};
+
     if (Wt > WT_THRESHOLD) {
         // Multi-core implementation
         return sort::program::SortProgramFactorySingleRowMultiCore{};
