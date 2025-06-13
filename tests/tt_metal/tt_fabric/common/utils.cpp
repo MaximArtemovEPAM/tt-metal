@@ -26,12 +26,22 @@ bool find_device_with_neighbor_in_multi_direction(
     auto& control_plane = tt::tt_metal::MetalContext::instance().get_control_plane();
 
     auto devices = fixture->get_devices();
+    FabricNodeId src_node_id(MeshId{0}, 0);
+    bool src_fixed = src_fabric_node_id.is_initialized();
     // Find a device with enough neighbours in the specified direction
     bool connection_found = false;
     for (auto* device : devices) {
-        src_fabric_node_id = control_plane.get_fabric_node_id_from_physical_chip_id(device->id());
+        if (src_fabric_node_id.is_initialized()) {
+            if (src_fabric_node_id == control_plane.get_fabric_node_id_from_physical_chip_id(device->id())) {
+                src_node_id = src_fabric_node_id;
+            } else {
+                continue;
+            }
+        } else {
+            src_node_id = control_plane.get_fabric_node_id_from_physical_chip_id(device->id());
+        }
         if (incoming_direction.has_value()) {
-            if (!control_plane.get_intra_chip_neighbors(src_fabric_node_id, incoming_direction.value()).size()) {
+            if (!control_plane.get_intra_chip_neighbors(src_node_id, incoming_direction.value()).size()) {
                 // This potential source will not have the requested incoming direction, skip
                 continue;
             }
@@ -43,7 +53,7 @@ bool find_device_with_neighbor_in_multi_direction(
             bool direction_found = true;
             auto& temp_end_fabric_node_ids = temp_end_fabric_node_ids_by_dir[routing_direction];
             auto& temp_physical_end_device_ids = temp_physical_end_device_ids_by_dir[routing_direction];
-            auto curr_fabric_node_id = src_fabric_node_id;
+            auto curr_fabric_node_id = src_node_id;
             for (uint32_t i = 0; i < num_hops; i++) {
                 auto neighbors = control_plane.get_intra_chip_neighbors(curr_fabric_node_id, routing_direction);
                 if (neighbors.size() > 0) {
@@ -62,6 +72,9 @@ bool find_device_with_neighbor_in_multi_direction(
             }
         }
         if (connection_found) {
+            if (!src_fabric_node_id.is_initialized()) {
+                src_fabric_node_id = src_node_id;
+            }
             src_physical_device_id = device->id();
             dst_fabric_node_ids_by_dir = std::move(temp_end_fabric_node_ids_by_dir);
             dst_physical_device_ids_by_dir = std::move(temp_physical_end_device_ids_by_dir);

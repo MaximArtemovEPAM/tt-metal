@@ -27,6 +27,7 @@ public:
     explicit FabricNodeId(MeshId mesh_id, std::uint32_t chip_id);
     MeshId mesh_id{0};
     std::uint32_t chip_id = 0;
+    bool is_initialized() const { return (mesh_id != MeshId(-1)) && (chip_id != -1); }
 };
 
 bool operator==(const FabricNodeId& lhs, const FabricNodeId& rhs);
