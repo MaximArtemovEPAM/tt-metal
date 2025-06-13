@@ -8,6 +8,7 @@
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/util.hpp>
 #include "tt-metalium/core_coord.hpp"
+#include "tt-metalium/tt_backend_api_types.hpp"
 
 namespace ttnn::operations::experimental::reduction::sort::program {
 
@@ -603,10 +604,13 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::datatype_to_dataformat_converter(output_tensors.at(0).dtype());
     const tt::DataFormat index_tensor_cb_data_format =
         tt::tt_metal::datatype_to_dataformat_converter(output_tensors.at(1).dtype());
+    const tt::DataFormat sync_cb_data_format =
+        tt::DataFormat::Float16_b;  // Note: Format does not matter here, CB is only used as barrier
 
     const uint32_t input_tensor_tile_size = tile_size(input_tensor_cb_data_format);
     const uint32_t value_tensor_tile_size = tile_size(value_tensor_cb_data_format);
     const uint32_t index_tensor_tile_size = tile_size(index_tensor_cb_data_format);
+    const uint32_t sync_tile_size = tile_size(sync_cb_data_format);
 
     auto input_buffer = tensor_args.input_tensor.buffer();
     auto value_buffer = output_tensors.at(0).buffer();
@@ -745,13 +749,20 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     auto cb_index_tensor_output =
         tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_output_cb_config);
 
-    // NOTE: This CB only contain a single tile
+    // NOTE: This CB only contain a single tile, but it could be increased later (to allow for bigger NOC transfers)
     constexpr uint32_t value_tensor_other_cb_index = tt::CBIndex::c_6;
     const tt::tt_metal::CircularBufferConfig value_tensor_other_cb_config =
         tt::tt_metal::CircularBufferConfig(
             value_tensor_tile_size, {{value_tensor_other_cb_index, value_tensor_cb_data_format}})
             .set_page_size(value_tensor_other_cb_index, value_tensor_tile_size);
     auto cb_value_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, value_tensor_other_cb_config);
+
+    // NOTE: This CB is only used to synchronised Computer kernel and Writer kernel
+    constexpr uint32_t sync_cb_index = tt::CBIndex::c_7;
+    const tt::tt_metal::CircularBufferConfig sync_cb_index_config =
+        tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_cb_index, sync_cb_data_format}})
+            .set_page_size(sync_cb_index, sync_tile_size);
+    auto cb_sync = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_cb_index_config);
 
     const uint32_t num_cores_y = compute_with_storage_grid_size.y;
 
@@ -785,7 +796,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         value_tensor_cb_index,
         index_tensor_cb_index,
         input_tensor_transposed_cb_index,
-        value_tensor_cb_index,
+        value_tensor_other_cb_index,
+        sync_cb_index,
         static_cast<uint32_t>(value_tensor_is_dram),
         Wt,
         Wt_per_core,
@@ -814,6 +826,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         value_tensor_cb_index,
         index_tensor_output_cb_index,
         value_tensor_other_cb_index,
+        sync_cb_index,
         Wt,
         Wt_per_core,
         static_cast<uint32_t>(attributes.descending),
@@ -861,7 +874,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coord_core0.y,
              physical_coord_core1.x,
              physical_coord_core1.y});
-        SetRuntimeArgs(program, compute_kernel_id, core0, {all_core_utilization_loop_count});
+        SetRuntimeArgs(program, compute_kernel_id, core0, {all_core_utilization_loop_count, true});
     }
 
     {
@@ -880,7 +893,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coord_core1.y,
              physical_coord_core0.x,
              physical_coord_core0.y});
-        SetRuntimeArgs(program, compute_kernel_id, core1, {all_core_utilization_loop_count});
+        SetRuntimeArgs(program, compute_kernel_id, core1, {all_core_utilization_loop_count, false});
     }
 
     // TODO: For now, fix number of cores to 2 (TT_THROW if too much data)

@@ -75,6 +75,7 @@ Calculation of each row:
 void MAIN {
     // Runtime args
     const uint32_t core_loop_count = get_arg_val<uint32_t>(0);
+    const uint32_t select_min = get_arg_val<uint32_t>(1);
 
     DPRINT << TERM_COMPUTE << "[Compute] starting..." << TERM_RESET << ENDL();
 
@@ -86,14 +87,17 @@ void MAIN {
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(4);
     constexpr uint32_t index_tensor_output_cb_index = get_compile_time_arg_val(5);
     constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(6);
+    constexpr uint32_t sync_cb_index = get_compile_time_arg_val(7);
 
-    constexpr uint32_t Wt = get_compile_time_arg_val(7);
-    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(8);
-    constexpr bool descending = get_compile_time_arg_val(9);
+    constexpr uint32_t Wt = get_compile_time_arg_val(8);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(9);
+    constexpr bool descending = get_compile_time_arg_val(10);
     constexpr bool stable =
-        get_compile_time_arg_val(10);  // TODO: In the future change LLK to have the option or add additional step with
+        get_compile_time_arg_val(11);  // TODO: In the future change LLK to have the option or add additional step with
                                        // checking values and indexes after the sorting
                                        // Issue: https://github.com/tenstorrent/tt-metal/issues/20625
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(12);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(13);
 
     constexpr uint32_t one_tile = 1;
 
@@ -103,13 +107,14 @@ void MAIN {
     constexpr uint32_t index_dest_end = 3;
 
     DPRINT_MATH(
-        DPRINT << TERM_COMPUTE << "[Compute] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core << TERM_RESET << ENDL());
+        DPRINT << TERM_COMPUTE << "[Compute] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core
+               << ", select_min = " << select_min << TERM_RESET << ENDL());
 
     ckernel::topk_tile_init();
     transpose_wh_init(input_tensor_cb_index, input_tensor_transposed_cb_index);
 
     for (uint32_t core_loop = 0; core_loop < core_loop_count; core_loop++) {
-        const bool ascending = !descending;
+        const bool ascending = (!descending);
 
         DPRINT << TERM_COMPUTE << "[Compute] building bitonic sequence..." << TERM_RESET << ENDL();
         sort_Wt_tiles_row_to_bitonic_sequence(
@@ -124,8 +129,10 @@ void MAIN {
 
         DPRINT << TERM_COMPUTE << "[Compute] built bitonic sequence" << TERM_RESET << ENDL();
         // Wait for bitonic sequence of Wt tiles
-        cb_wait_front(input_tensor_transposed_cb_index, Wt);
-        cb_wait_front(index_tensor_transposed_cb_index, Wt);
+        cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
+        // DPRINT << TERM_COMPUTE << "[Compute] cb_wait_front(input_tensor_cb)" << TERM_RESET << ENDL();
+        cb_wait_front(index_tensor_transposed_cb_index, Wt_per_core);
+        // DPRINT << TERM_COMPUTE << "[Compute] cb_wait_frotn(index_tensor_cb)" << TERM_RESET << ENDL();
 
         // Sort and merge step of bitonic merge sort
         uint32_t stages = 0;
@@ -200,20 +207,39 @@ void MAIN {
                         pack_tile<true>(index_dest_end, index_tensor_transposed_cb_index, right_tile_id);
 
                         tile_regs_release();
+                        DPRINT << TERM_COMPUTE << "[Compute] i = " << i << TERM_RESET << ENDL();
                     }
-                }
-            }
-        }
+                }  // Wt_per_core loop
+            }  // sub loop
+        }  // stage loop
         DPRINT << TERM_COMPUTE << "[Compute] completed local sort, synchronizing" << TERM_RESET << ENDL();
 
+        // BUG: Deadlock with Writer
+
+        // transposed_cb only have Wt tiles, which are already in use therefore
+        // PACKER blocks until UNPACKER completes cb_pop_front()
         cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
         cb_reserve_back(index_tensor_transposed_cb_index, Wt_per_core);
 
+        // DPRINT << TERM_COMPUTE << "[Compute] cb_reserve_back()" << TERM_RESET << ENDL();
+
+        // UNPACKER pop Wt tiles => transposed_cb becomes empty
+        // => PACKER resumes
         cb_pop_front(input_tensor_transposed_cb_index, Wt_per_core);
         cb_pop_front(index_tensor_transposed_cb_index, Wt_per_core);
 
+        // DPRINT << TERM_COMPUTE << "[Compute] cb_pop_front()" << TERM_RESET << ENDL();
+
+        // UNPACK will consecutively call wait_front in transpose_and_pack
+        // Therefore, PACKER must liberate buffer
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
         cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
+
+        // DPRINT << TERM_COMPUTE << "[Compute] cb_push_back()" << TERM_RESET << ENDL();
+
+        // Syncrhonize with Writer: Writer can start reading input_tensor_transposed_cb_index
+        cb_reserve_back(sync_cb_index, one_tile);
+        cb_push_back(sync_cb_index, one_tile);
 
         // Second phase: use second circular buffer
         // 1. read 2 tiles from input_tensor_cb / input_other_cb
@@ -231,11 +257,11 @@ void MAIN {
 
         binary_op_init_common(TILE_INPUT0, TILE_INPUT1, TILE_INPUT0);
 
-        constexpr bool select_min = true;  // TODO: Compute select_min from core_id (within row) and stage
         constexpr uint32_t FIRST_TILE = 0;
 
         DPRINT << TERM_COMPUTE << "[Compute] finished local sorting" << TERM_RESET << ENDL();
 
+        constexpr bool select_min = true;
         // TODO: Replace value tensor with transposed_tensor
         // TODO: value tensor should only be used at the very end
         // Second phase:
@@ -243,14 +269,18 @@ void MAIN {
         // 2) apply min/max on it with value_other_cb
         // 3) Re-built bitonic sequence
         for (uint32_t i = 0; i < Wt_per_core; i++) {
+            DPRINT_UNPACK(
+                DPRINT << TERM_COMPUTE << "[Compute] waiting for tiles on other_cb = " << value_tensor_other_cb_index
+                       << TERM_RESET << ENDL());
             cb_wait_front(value_tensor_other_cb_index, one_tile);
-            cb_reserve_back(value_tensor_cb_index, one_tile);  // from start to finish
+            cb_wait_front(input_tensor_transposed_cb_index, one_tile);
 
+            DPRINT_UNPACK(DPRINT << TERM_COMPUTE << "[Compute] copying tiles" << TERM_RESET << ENDL());
             copy_tile_to_dst_init_short(value_tensor_other_cb_index, one_tile);
             copy_tile(value_tensor_other_cb_index, FIRST_TILE, TILE_INPUT1);
 
-            copy_tile_to_dst_init_short(value_tensor_cb_index);
-            copy_tile(value_tensor_cb_index, FIRST_TILE, TILE_INPUT0);
+            copy_tile_to_dst_init_short(input_tensor_transposed_cb_index);
+            copy_tile(input_tensor_transposed_cb_index, FIRST_TILE, TILE_INPUT0);
 
             tile_regs_acquire();
             DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] math running min/max" << TERM_RESET << ENDL());
@@ -266,19 +296,107 @@ void MAIN {
             tile_regs_commit();
 
             tile_regs_wait();
-            pack_tile<true>(TILE_INPUT0, value_tensor_cb_index, i);
+            pack_tile<true>(TILE_INPUT0, input_tensor_transposed_cb_index, i);
             tile_regs_release();
 
-            cb_push_back(value_tensor_cb_index, one_tile);
-
             cb_pop_front(value_tensor_other_cb_index, one_tile);
+            cb_pop_front(input_tensor_transposed_cb_index, one_tile);
         }
         DPRINT << TERM_COMPUTE << "[Compute] finished min/max" << TERM_RESET << ENDL();
 
         // Repeat local sort (bitonic sequence + merge)
         // This is a naive approach, we could probably do something better
 
-        // Bitonic done => Write data back
+        // Right now, input_tensor_transposed_cb_index is empty
+        cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
+
+        // cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
+
+        // for (uint32_t stage = 2; stage <= stages; stage++) {
+        //     for (uint32_t sub = stage; sub > 0; sub--) {
+        //         uint32_t sub_dist = 1 << (sub - 1);
+        //         for (uint32_t i = 0; i < Wt_per_core; i++) {
+        //             uint32_t j = i ^ sub_dist;
+        //             if (j > i) {
+        //                 // Determine direction for this comparison block
+        //                 const bool ascending_block = ((i >> stage) & 1) == 0;
+        //                 const bool dir = ascending_block == ascending;
+
+        //                 // Get indexes of tiles to compare
+        //                 const uint32_t left_tile_id = i;
+        //                 const uint32_t right_tile_id = j;
+        //                 /**
+        //                  * Compute kernel for performing bitonic sort on tiles with synchronization caveats.
+        //                  *
+        //                  * Potential Bug: Unpacker and Packer Threads Synchronization Issue
+        //                  *
+        //                  * After migrating to the blackhole architecture, undefined behavior was observed, resulting
+        //                  in
+        //                  * incorrect results. The core of the issue lies in the synchronization between the unpacker
+        //                  * (reading tiles from CB to registers) and packer (writing tiles from registers back to CB)
+        //                  * threads.
+        //                  *
+        //                  * In the this loop, two tiles are read from a circular buffer (CB) into LLK registers, an
+        //                  LLK
+        //                  * operation is performed, and then the results are written back to the same CB. If there is
+        //                  * insufficient synchronization between the packer and unpacker threads, it is possible that
+        //                  the
+        //                  * packer thread does not have enough time to fully pack the tiles from the registers back to
+        //                  * the CB before the next loop iteration begins. As a result, the unpacker thread in the next
+        //                  * iteration may read tiles into registers before the previous packing operation is complete,
+        //                  * leading to data hazards and undefined behavior.
+        //                  *
+        //                  * Debugging revealed that inserting a delay between loop iterations resolved the issue,
+        //                  * suggesting a race condition between packing and unpacking. However, since there is no
+        //                  * semaphore or similar synchronization primitive available in the compute kernel, it is not
+        //                  * possible to enforce proper synchronization programmatically.
+        //                  *
+        //                  * As a temporary workaround, swapping the order of read and write operations helped mitigate
+        //                  * the issue, but this is not a robust or permanent solution. Proper synchronization between
+        //                  * packer and unpacker threads is required to ensure data integrity and correct results.
+        //                  *
+        //                  * See also: https://github.com/tenstorrent/tt-metal/pull/22340
+        //                  */
+        //                 tile_regs_acquire();
+        //                 copy_tile_to_dst_init_short_with_dt(
+        //                     input_tensor_transposed_cb_index, index_tensor_transposed_cb_index);
+        //                 copy_tile(index_tensor_transposed_cb_index, left_tile_id, index_dest_start);
+        //                 copy_tile(index_tensor_transposed_cb_index, right_tile_id, index_dest_end);
+
+        //                 copy_tile_to_dst_init_short_with_dt(
+        //                     index_tensor_transposed_cb_index, input_tensor_transposed_cb_index);
+        //                 copy_tile(input_tensor_transposed_cb_index, left_tile_id, input_dest_start);
+        //                 copy_tile(input_tensor_transposed_cb_index, right_tile_id, input_dest_end);
+
+        //                 ckernel::topk_local_sort(0, (int)dir, 5);
+
+        //                 tile_regs_commit();
+        //                 tile_regs_wait();
+
+        //                 pack_reconfig_data_format(input_tensor_transposed_cb_index);
+        //                 pack_tile<true>(input_dest_start, input_tensor_transposed_cb_index, left_tile_id);
+        //                 pack_tile<true>(input_dest_end, input_tensor_transposed_cb_index, right_tile_id);
+
+        //                 pack_reconfig_data_format(index_tensor_transposed_cb_index);
+        //                 pack_tile<true>(index_dest_start, index_tensor_transposed_cb_index, left_tile_id);
+        //                 pack_tile<true>(index_dest_end, index_tensor_transposed_cb_index, right_tile_id);
+
+        //                 tile_regs_release();
+        //                 DPRINT << TERM_COMPUTE << "[Compute] i = " << i << TERM_RESET << ENDL();
+        //             }
+        //         } // Wt_per_core loop
+        //     } // sub loop
+        // } // stage loop
+
+        DPRINT << TERM_COMPUTE << "[Compute] finished second local sort" << TERM_RESET << ENDL();
+        cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
+
+        cb_pop_front(input_tensor_transposed_cb_index, Wt_per_core);
+
+        cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
+
+        // TODO: Same with index_tensor_transposed_cb_index (we did not send it for now)
 
         // Write everything into value tensor
         // Values tensor

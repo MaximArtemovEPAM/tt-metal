@@ -7,6 +7,7 @@
 #include "debug/dprint.h"
 #include "sort_distributed_common.hpp"
 #include "../sort_debug_common.hpp"
+#include "tt-metalium/bfloat16.hpp"
 
 FORCE_INLINE void generate_index_tile(const uint32_t cb_id, const uint32_t wt) {
     constexpr uint32_t one_tile = 1;
@@ -43,6 +44,14 @@ FORCE_INLINE void generate_index_tile(const uint32_t cb_id, const uint32_t wt) {
     cb_push_back(cb_id, one_tile);
 }
 
+FORCE_INLINE void print_row_bf16(bfloat16* ptr, uint32_t len) {
+    DPRINT << TERM_WRITER;
+    for (uint32_t i = 0; i < len; i++) {
+        DPRINT <<
+    }
+    DPRINT << TERM_RESET << ENDL();
+}
+
 /*
 To improve performance of both reader and writer kernels the work has been split so that they both prepare input and
 save output data.
@@ -69,16 +78,17 @@ void kernel_main() {
     constexpr uint32_t index_tensor_cb_index = get_compile_time_arg_val(1);
     constexpr uint32_t input_tensor_transposed_cb_index = get_compile_time_arg_val(2);
     constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(3);
+    constexpr uint32_t sync_cb_index = get_compile_time_arg_val(4);  // TO-ADD
 
-    constexpr bool value_tensor_is_dram = get_compile_time_arg_val(4);
-    constexpr uint32_t Wt = get_compile_time_arg_val(5);
-    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(6);  // TO-ADD
-    constexpr uint32_t Ht = get_compile_time_arg_val(7);
-    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(8);
-    constexpr uint32_t num_cores_y = get_compile_time_arg_val(9);  // TO-ADD
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(10);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(11);
-    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(12));
+    constexpr bool value_tensor_is_dram = get_compile_time_arg_val(5);
+    constexpr uint32_t Wt = get_compile_time_arg_val(6);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(7);
+    constexpr uint32_t Ht = get_compile_time_arg_val(8);
+    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(9);
+    constexpr uint32_t num_cores_y = get_compile_time_arg_val(10);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(11);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(12);
+    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(13));
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
@@ -130,6 +140,12 @@ void kernel_main() {
         sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
         const uint32_t value_tensor_other_tile_size_bytes = get_tile_size(value_tensor_other_cb_index);
 
+        // TODO: Add syncrhonisation barrier with compute kernel
+        // Wait for Compute for complete
+        // Use sync_cb as barrier
+        cb_wait_front(sync_cb_index, one_tile);
+        cb_pop_front(sync_cb_index, one_tile);
+
         DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
 
         // TODO: Beware of synchronization between Reader and Compute regarding input_tensor_transposed_cb_index
@@ -155,7 +171,9 @@ void kernel_main() {
                 input_other_noc_addr,
                 value_tensor_other_tile_size_bytes);
 
-            DPRINT << TERM_WRITER << "[Writer] sending other tile back to compute" << TERM_RESET << ENDL();
+            DPRINT << TERM_WRITER
+                   << "[Writer] sending other tile back to compute, other_cb = " << value_tensor_other_cb_index
+                   << TERM_RESET << ENDL();
             cb_push_back(value_tensor_other_cb_index, one_tile);
 
             cb_pop_front(input_tensor_transposed_cb_index, one_tile);
@@ -164,7 +182,7 @@ void kernel_main() {
         DPRINT << TERM_WRITER << "[Writer] exchange complete" << TERM_RESET << ENDL();
         // Sort is compolete, we read final results from value_tensor_cb_index
         // Write value tensor to DRAM
-        for (uint32_t w = w_start; w < Wt_per_core; w++) {
+        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
             cb_wait_front(value_tensor_cb_index, one_tile);
             const uint32_t l1_write_addr_val = get_read_ptr(value_tensor_cb_index);
             noc_async_write_tile(h * Wt + w, interleaved_accessor0, l1_write_addr_val);

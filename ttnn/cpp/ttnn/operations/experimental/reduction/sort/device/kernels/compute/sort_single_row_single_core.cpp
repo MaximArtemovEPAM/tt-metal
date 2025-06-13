@@ -192,12 +192,18 @@ void MAIN {
             }
         }
 
+        // transposed_cb only have Wt tiles, which are already in use therefore
+        // PACKER blocks until UNPACKER completes cb_pop_front()
         cb_reserve_back(input_tensor_transposed_cb_index, Wt);
         cb_reserve_back(index_tensor_transposed_cb_index, Wt);
 
+        // UNPACKER pop Wt tiles => transposed_cb becomes empty
+        // => PACKER resumes
         cb_pop_front(input_tensor_transposed_cb_index, Wt);
         cb_pop_front(index_tensor_transposed_cb_index, Wt);
 
+        // UNPACK will consecutively call wait_front in transpose_and_pack
+        // Therefore, PACKER must liberate buffer
         cb_push_back(input_tensor_transposed_cb_index, Wt);
         cb_push_back(index_tensor_transposed_cb_index, Wt);
 
