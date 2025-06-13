@@ -640,8 +640,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     // const uint32_t all_core_utilization_loop_count = Ht / total_number_of_cores;
     const uint32_t all_core_utilization_loop_residuum = Ht % total_number_of_cores;
 
-    // For now: set number of cores to 2, and assume Wt % 2 == 0 (no residuum)
-    const uint32_t all_core_utilization_loop_count = Wt / 2;
+    // For now: set number of cores to 2, and assume Ht % 2 == 0 (no residuum)
+    const uint32_t all_core_utilization_loop_count = Ht;
 
     std::cout << "total number of cores = " << total_number_of_cores << std::endl;
     std::cout << "Wt = " << Wt << ", Ht = " << Ht << ", loop count = " << all_core_utilization_loop_count

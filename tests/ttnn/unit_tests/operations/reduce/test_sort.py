@@ -43,6 +43,7 @@ def test_sort_standard(shape, dim, descending, device):
     assert torch_sort_values.shape == ttnn_sort_values.shape
     assert torch_sort_indices.shape == ttnn_sort_indices.shape
 
+    print(f"input = \n{input}")
     print(f"golden values =\n{torch_sort_values} ")
     print(f"sort values =\n{ttnn.to_torch(ttnn_sort_values)}")
 

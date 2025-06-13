@@ -7,7 +7,6 @@
 #include "debug/dprint.h"
 #include "sort_distributed_common.hpp"
 #include "../sort_debug_common.hpp"
-#include "tt-metalium/bfloat16.hpp"
 
 FORCE_INLINE void generate_index_tile(const uint32_t cb_id, const uint32_t wt) {
     constexpr uint32_t one_tile = 1;
@@ -44,12 +43,31 @@ FORCE_INLINE void generate_index_tile(const uint32_t cb_id, const uint32_t wt) {
     cb_push_back(cb_id, one_tile);
 }
 
-FORCE_INLINE void print_row_bf16(bfloat16* ptr, uint32_t len) {
+FORCE_INLINE void print_row_bf16(uint16_t* ptr, uint32_t len) {
     DPRINT << TERM_WRITER;
+    DPRINT << "[";
     for (uint32_t i = 0; i < len; i++) {
-        DPRINT <<
+        uint16_t val = ptr[i];
+        DPRINT << " " << BF16(val) << " (" << HEX{} << val << DEC{} << ")";
     }
-    DPRINT << TERM_RESET << ENDL();
+    DPRINT << "]" << TERM_RESET << ENDL();
+}
+
+FORCE_INLINE void print_tile_bf16(uint16_t* tile_ptr) {
+    constexpr uint32_t FACE_LEN = 16;
+    constexpr uint32_t TILE_LEN = 32 * 32;
+    constexpr uint32_t TILE_HEIGHT = TILE_LEN / FACE_LEN;
+
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < TILE_HEIGHT; i++) {
+        DPRINT << TERM_WRITER << i << " | ";
+        for (uint32_t j = 0; j < FACE_LEN; j++, offset++) {
+            uint32_t val = tile_ptr[offset];
+
+            DPRINT << SETW(6) << BF16(val) << " ";
+        }
+        DPRINT << TERM_RESET << ENDL();
+    }
 }
 
 /*
@@ -78,7 +96,7 @@ void kernel_main() {
     constexpr uint32_t index_tensor_cb_index = get_compile_time_arg_val(1);
     constexpr uint32_t input_tensor_transposed_cb_index = get_compile_time_arg_val(2);
     constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(3);
-    constexpr uint32_t sync_cb_index = get_compile_time_arg_val(4);  // TO-ADD
+    constexpr uint32_t sync_cb_index = get_compile_time_arg_val(4);
 
     constexpr bool value_tensor_is_dram = get_compile_time_arg_val(5);
     constexpr uint32_t Wt = get_compile_time_arg_val(6);
@@ -170,6 +188,12 @@ void kernel_main() {
                 l1_read_ptr,
                 input_other_noc_addr,
                 value_tensor_other_tile_size_bytes);
+
+            constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
+            DPRINT << "[Writer] sent tile:";
+            print_tile_bf16(reinterpret_cast<uint16_t*>(l1_read_ptr));
+            DPRINT << "[Writer] received tile:";
+            print_tile_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr));
 
             DPRINT << TERM_WRITER
                    << "[Writer] sending other tile back to compute, other_cb = " << value_tensor_other_cb_index
