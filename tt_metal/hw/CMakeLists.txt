@@ -64,7 +64,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(sfpi)
 
 foreach(ARCH IN LISTS ARCHS)
-    set(DEV_MEM_MAP "${PROJECT_SOURCE_DIR}/tt_metal/hw/inc/${ARCH}/dev_mem_map.h")
+    set(DEV_MEM_MAPS
+        "${PROJECT_SOURCE_DIR}/tt_metal/hw/inc/${ARCH}/dev_mem_map.h"
+        "${PROJECT_SOURCE_DIR}/tt_metal/hw/inc/${ARCH}/tensix_dev_map.h"
+    )
     set(HW_INCLUDES "${PROJECT_SOURCE_DIR}/tt_metal/hw/inc/${ARCH}")
     set(HW_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/runtime/hw/toolchain/${ARCH}")
     string(TOUPPER ${ARCH} ARCH_DEFINE)
@@ -471,6 +474,7 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.23)
                 inc/blackhole/stream_interface.h
                 inc/blackhole/stream_io_map.h
                 inc/blackhole/tdma_xmov.h
+                inc/blackhole/tensix_dev_map.h
                 inc/blackhole/tensix.h
                 inc/blackhole/tensix_types.h
                 inc/circular_buffer.h
@@ -520,6 +524,7 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.23)
                 inc/wormhole/stream_io_map.h
                 inc/wormhole/tdma_xmov.h
                 inc/wormhole/tensix.h
+                inc/wormhole/tensix_dev_map.h
                 inc/wormhole/wormhole_b0_defines/cfg_defines.h
                 inc/wormhole/wormhole_b0_defines/tensix_types.h
                 inc/dataflow_api_addrgen.h
@@ -529,7 +534,6 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.23)
                 toolchain/erisc-b0-app-sections.ld
                 toolchain/erisc-b0-memory.ld
                 toolchain/erisc-b0-kernel.ld
-                toolchain/tensix-address.ld
     )
 endif()
 
