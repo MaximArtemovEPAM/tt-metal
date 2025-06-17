@@ -17,6 +17,9 @@ target_sources(
         sdpa_decode/device/sdpa_decode_op.cpp
         sdpa_decode/device/sdpa_decode_program_factory.cpp
         sdpa_decode/sdpa_decode.cpp
+        flash_mla_decode/device/flash_mla_decode_op.cpp
+        flash_mla_decode/device/flash_mla_decode_program_factory.cpp
+        flash_mla_decode/flash_mla_decode.cpp
         split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.cpp
 )
 
