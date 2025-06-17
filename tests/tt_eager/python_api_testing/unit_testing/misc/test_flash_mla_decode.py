@@ -141,7 +141,7 @@ def run_flash_mla_decode_impl(
     )
 
     logger.info(f"TT Q shape: {tt_q.shape}, TT K shape: {tt_k.shape}, TT V shape: {tt_v.shape}")
-    tt_out = ttnn.transformer.scaled_dot_product_attention_decode(
+    tt_out = ttnn.transformer.flash_mla_decode(
         tt_q,
         tt_k,
         tt_v,
