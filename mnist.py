@@ -41,18 +41,20 @@ def main():
     output = model.forward(input)
 
     captured_graph = ttnn.graph.end_graph_capture()
-
-    print("test")
-    ttnn.graph.visualize(captured_graph, file_name="graph.svg")
-    # ttnn.graph.pretty_print(captured_graph)
     #
     # End graph capture
 
-    print()
-    print(captured_graph)
-    print()
+    # ttnn.graph.visualize(captured_graph, file_name="graph.svg")
+    # ttnn.graph.pretty_print(captured_graph)
 
-    # print("Output shape:", output.shape)
+    # print()
+    # print(captured_graph)
+    # print()
+
+    # Dump the captured graph to a file for debugging
+    # This can be useful to inspect the graph structure and operations
+    with open("dump.txt", "w") as f:
+        f.write(str(captured_graph))
 
     ttnn.close_device(device)
 
