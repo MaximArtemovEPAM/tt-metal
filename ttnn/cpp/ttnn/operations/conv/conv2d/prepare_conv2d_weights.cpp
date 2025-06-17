@@ -1153,7 +1153,7 @@ ttnn::Tensor prepare_conv_weights(
     uint32_t groups,
     T* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_,
     const std::optional<const Conv2dSliceConfig>& dram_slice_config_) {
@@ -1232,7 +1232,7 @@ ttnn::Tensor prepare_conv_weights(
         conv_config,
         input_layout,
         input_dtype,
-        output_dtype,
+        output_dtype.value_or(input_dtype),
         compute_config,
         input_memory_config,
         has_bias);
@@ -1325,7 +1325,7 @@ ttnn::Tensor prepare_conv_bias(
     uint32_t groups,
     T* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_) {
     Conv2dConfig conv_config = conv_config_.value_or(Conv2dConfig());
@@ -1366,7 +1366,7 @@ ttnn::Tensor prepare_conv_bias(
         conv_config,
         input_layout,
         input_dtype,
-        output_dtype,
+        output_dtype.value_or(input_dtype),
         compute_config,
         input_memory_config,
         true);
@@ -1448,7 +1448,7 @@ template ttnn::Tensor prepare_conv_weights<IDevice>(
     uint32_t groups,
     IDevice* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_,
     const std::optional<const Conv2dSliceConfig>& dram_slice_config_);
@@ -1471,7 +1471,7 @@ template ttnn::Tensor prepare_conv_weights<MeshDevice>(
     uint32_t groups,
     MeshDevice* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_,
     const std::optional<const Conv2dSliceConfig>& dram_slice_config_);
@@ -1517,7 +1517,7 @@ template ttnn::Tensor prepare_conv_bias<IDevice>(
     uint32_t groups,
     IDevice* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_);
 
@@ -1537,7 +1537,7 @@ template ttnn::Tensor prepare_conv_bias<MeshDevice>(
     uint32_t groups,
     MeshDevice* device,
     DataType input_dtype,
-    DataType output_dtype,
+    const std::optional<const DataType>& output_dtype,
     const std::optional<const Conv2dConfig>& conv_config_,
     const std::optional<const DeviceComputeKernelConfig>& compute_config_);
 
