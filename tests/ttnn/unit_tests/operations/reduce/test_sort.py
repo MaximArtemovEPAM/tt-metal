@@ -5,7 +5,7 @@
 import pytest
 import torch
 import ttnn
-from tests.ttnn.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc, assert_with_ulp
 
 TILE_WIDTH = 32
 
@@ -13,8 +13,8 @@ TILE_WIDTH = 32
 @pytest.mark.parametrize(
     "shape, dim, descending",
     [
-        ([1, 128], -1, False),
-        # ([32, 128], -1, False),
+        # ([1, 128], -1, False),
+        ([33, 128], -1, False),
         # ([1, 1, 32, 64], -1, True),
         # ([32, 128], 1, True),
         # ([1], 0, True),
@@ -53,7 +53,8 @@ def test_sort_standard(shape, dim, descending, device):
     if len(shape) == 0 or len(shape) == 1:
         assert torch_sort_values == ttnn.to_torch(ttnn_sort_values)
     else:
-        assert_with_pcc(torch_sort_values, ttnn.to_torch(ttnn_sort_values))
+        # assert_with_pcc(torch_sort_values, ttnn.to_torch(ttnn_sort_values))
+        assert_with_ulp(torch_sort_values, ttnn.to_torch(ttnn_sort_values))
 
 
 @pytest.mark.parametrize(

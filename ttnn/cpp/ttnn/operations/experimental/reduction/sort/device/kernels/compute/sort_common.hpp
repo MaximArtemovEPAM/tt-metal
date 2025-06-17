@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "debug/dprint_tensix.h"
+#include "../sort_debug_common.hpp"
+
 namespace NAMESPACE {
 
 void sort_Wt_tiles_row_to_bitonic_sequence(
@@ -33,11 +36,14 @@ void sort_Wt_tiles_row_to_bitonic_sequence(
         transpose_wh_init_short(index_cb_index);
         transpose_wh_tile(index_cb_index, 0, 2);
         transpose_wh_tile(index_cb_index, 1, 3);
+        // DPRINT << TERM_COMPUTE << "[Compute] performed local sort on  " << wt << " and " << wt + 1 << TERM_RESET <<
+        // ENDL();
 
         // llk_topk_sort -> inplace
         ckernel::topk_local_sort(0, (int)ascending_local, end_phase);
 
         tile_regs_commit();
+
         tile_regs_wait();
 
         // pack value tiles into transposed buffer
@@ -49,6 +55,7 @@ void sort_Wt_tiles_row_to_bitonic_sequence(
         pack_reconfig_data_format(index_transposed_cb_index);
         pack_tile(2, index_transposed_cb_index);
         pack_tile(3, index_transposed_cb_index);
+
         cb_pop_front(input_cb_index, 2);
         cb_pop_front(index_cb_index, 2);
 

@@ -72,6 +72,7 @@ void kernel_main() {
         const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
 
         // Read input value data
+        DPRINT << TERM_READER << "[Reader] writing value tiles" << TERM_RESET << ENDL();
         for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
             cb_reserve_back(input_tensor_cb_index, one_tile);
             const uint32_t l1_write_addr = get_write_ptr(input_tensor_cb_index);
@@ -80,7 +81,13 @@ void kernel_main() {
             cb_push_back(input_tensor_cb_index, one_tile);
         }  // Wt loop
 
+        // TODO: Move it back down and handle inter-core handshakes
+        //       Right now, if we read input tiles before index then we have a deadlock
+        //       Indeed, index_tensor_output_cb_index gets filled, which blocks compute and writer
+        //       But since they (currently) produce value tiles at the end (after index tiles),
+        //       there is a deadlock
         // Write output index data
+        DPRINT << TERM_READER << "[Reader] writing index tiles" << TERM_RESET << ENDL();
         for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
             cb_wait_front(index_tensor_output_cb_index, one_tile);
             const uint32_t l1_write_addr_index = get_read_ptr(index_tensor_output_cb_index);
@@ -88,6 +95,7 @@ void kernel_main() {
             noc_async_write_barrier();
             cb_pop_front(index_tensor_output_cb_index, one_tile);
         }  // Wt loop
+
     }  // core_loop_count loop
 
     DPRINT << TERM_READER << "[Sort Reader] completing" << TERM_RESET << ENDL();

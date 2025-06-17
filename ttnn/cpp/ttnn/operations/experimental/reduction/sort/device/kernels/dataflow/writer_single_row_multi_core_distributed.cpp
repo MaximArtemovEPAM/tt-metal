@@ -140,7 +140,10 @@ void kernel_main() {
         const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
 
         // Generate index tiles
-        for (uint32_t w = w_start; w < w_start + Wt; w++) {
+        DPRINT << TERM_WRITER << "[Writer] generating indices ..." << TERM_RESET << ENDL();
+        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
+            // TODO: Deadlock ?
+            DPRINT << TERM_WRITER << "[Writer] generating index tile " << w << TERM_RESET << ENDL();
             generate_index_tile(index_tensor_cb_index, w);
         }  // Wt loop
 
@@ -161,10 +164,11 @@ void kernel_main() {
         // TODO: Add syncrhonisation barrier with compute kernel
         // Wait for Compute for complete
         // Use sync_cb as barrier
+        DPRINT << TERM_WRITER << "[Writer] synchronizing with writer" << TERM_RESET << ENDL();
         cb_wait_front(sync_cb_index, one_tile);
         cb_pop_front(sync_cb_index, one_tile);
 
-        DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
+        // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
 
         // TODO: Beware of synchronization between Reader and Compute regarding input_tensor_transposed_cb_index
         uint32_t dbg_w = 0;
@@ -190,10 +194,10 @@ void kernel_main() {
                 value_tensor_other_tile_size_bytes);
 
             constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
-            DPRINT << "[Writer] sent tile:";
-            print_tile_bf16(reinterpret_cast<uint16_t*>(l1_read_ptr));
-            DPRINT << "[Writer] received tile:";
-            print_tile_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr));
+            // DPRINT << "[Writer] sent tile:";
+            // print_tile_bf16(reinterpret_cast<uint16_t*>(l1_read_ptr));
+            // DPRINT << "[Writer] received tile:";
+            // print_tile_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr));
 
             DPRINT << TERM_WRITER
                    << "[Writer] sending other tile back to compute, other_cb = " << value_tensor_other_cb_index

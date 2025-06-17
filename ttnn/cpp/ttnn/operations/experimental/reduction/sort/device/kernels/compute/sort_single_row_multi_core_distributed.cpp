@@ -209,7 +209,6 @@ void MAIN {
                         pack_tile<true>(index_dest_end, index_tensor_transposed_cb_index, right_tile_id);
 
                         tile_regs_release();
-                        DPRINT << TERM_COMPUTE << "[Compute] i = " << i << TERM_RESET << ENDL();
                     }
                 }  // Wt_per_core loop
             }  // sub loop
@@ -248,6 +247,10 @@ void MAIN {
         // Therefore, PACKER must liberate buffer
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
         cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
+
+        // Indexes tensor
+        DPRINT << TERM_COMPUTE << "[Compute] transpose and pack index" << TERM_RESET << ENDL();
+        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
 
         // DPRINT << TERM_COMPUTE << "[Compute] cb_push_back()" << TERM_RESET << ENDL();
 
@@ -300,10 +303,10 @@ void MAIN {
 
             DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] math running min/max" << TERM_RESET << ENDL());
 
-            DPRINT_MATH(DPRINT << "TILE_INPUT0 = " << ENDL());
-            dprint_tensix_dest_reg(TILE_INPUT0);
-            DPRINT_MATH(DPRINT << "TILE_INPUT1 = " << ENDL());
-            dprint_tensix_dest_reg(TILE_INPUT1);
+            // DPRINT_MATH(DPRINT << "TILE_INPUT0 = " << ENDL());
+            // dprint_tensix_dest_reg(TILE_INPUT0);
+            // DPRINT_MATH(DPRINT << "TILE_INPUT1 = " << ENDL());
+            // dprint_tensix_dest_reg(TILE_INPUT1);
 
             if (select_min) {
                 binary_min_tile_init();
@@ -312,8 +315,8 @@ void MAIN {
                 binary_max_tile_init();
                 binary_max_tile(TILE_INPUT0, TILE_INPUT1);
             }
-            DPRINT_MATH(DPRINT << "TILE_OUTPUT = " << ENDL());
-            dprint_tensix_dest_reg(TILE_INPUT0);
+            // DPRINT_MATH(DPRINT << "TILE_OUTPUT = " << ENDL());
+            // dprint_tensix_dest_reg(TILE_INPUT0);
 
             tile_regs_commit();
 
@@ -336,84 +339,106 @@ void MAIN {
         cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
 
-        // cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
 
-        ascending = !ascending;
+        // Sorting order:
+        // 0i <-> 2d [i]
+        // 1i <-> 3d [i]
+
+        // 0 <-> 1 [d]
+        // 2 <-> 3 [d]
+        DPRINT << TERM_COMPUTE << "[Compute] starting second local merge" << TERM_RESET << ENDL();
+        // Sort within tiles
+        int ascending_local = true;
+        uint32_t switch_dir = true;
+        for (uint32_t i = 0; i < Wt_per_core; i += 2) {
+            constexpr uint32_t INPUT_TILE0 = 0;
+            constexpr uint32_t INDEX_TILE0 = 2;
+            constexpr uint32_t INPUT_TILE1 = 1;
+            constexpr uint32_t INDEX_TILE1 = 3;
+
+            tile_regs_acquire();
+            copy_tile_to_dst_init_short(input_tensor_transposed_cb_index);
+            copy_tile(input_tensor_transposed_cb_index, i, INPUT_TILE0);
+            copy_tile(input_tensor_transposed_cb_index, i + 1, INPUT_TILE1);
+
+            // Substitute for index tiles (TODO: Fix this)
+            copy_tile(input_tensor_transposed_cb_index, i, INDEX_TILE0);
+            copy_tile(input_tensor_transposed_cb_index, i, INDEX_TILE1);
+
+            constexpr uint32_t end_phase = 5;
+            ckernel::topk_local_sort(INPUT_TILE0, (int)ascending_local, end_phase);
+
+            // DPRINT_MATH(DPRINT << "OUTPUT0 (" << i << ")" << ENDL());
+            // dprint_tensix_dest_reg_col0(INPUT_TILE0);
+            // DPRINT_MATH(DPRINT << "OUTPUT1 (" << i + 1 << ")" << ENDL());
+            // dprint_tensix_dest_reg_col0(INPUT_TILE1);
+
+            tile_regs_commit();
+
+            tile_regs_wait();
+            pack_tile<true>(TILE_INPUT0, input_tensor_transposed_cb_index, i);
+            pack_tile<true>(TILE_INPUT1, input_tensor_transposed_cb_index, i + 1);
+            tile_regs_release();
+
+            ascending_local = switch_dir ? !ascending_local : ascending_local;
+        }
+        DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] starting merge" << TERM_RESET << ENDL(););
+
+        // TODO: Compute start stage
+
+        ascending = !descending;
         for (uint32_t stage = 2; stage <= stages; stage++) {
             for (uint32_t sub = stage; sub > 0; sub--) {
                 uint32_t sub_dist = 1 << (sub - 1);
                 for (uint32_t i = 0; i < Wt_per_core; i++) {
                     uint32_t j = i ^ sub_dist;
                     if (j > i) {
-                        // Determine direction for this comparison block
                         const bool ascending_block = ((i >> stage) & 1) == 0;
                         const bool dir = ascending_block == ascending;
 
-                        // Get indexes of tiles to compare
+                        constexpr uint32_t INPUT_TILE0 = 0;
+                        constexpr uint32_t INPUT_TILE1 = 1;
+                        constexpr uint32_t INDEX_TILE0 = 2;
+                        constexpr uint32_t INDEX_TILE1 = 3;
+
                         const uint32_t left_tile_id = i;
                         const uint32_t right_tile_id = j;
-                        /**
-                         * Compute kernel for performing bitonic sort on tiles with synchronization caveats.
-                         *
-                         * Potential Bug: Unpacker and Packer Threads Synchronization Issue
-                         *
-                         * After migrating to the blackhole architecture, undefined behavior was observed, resulting
-                         in
-                         * incorrect results. The core of the issue lies in the synchronization between the unpacker
-                         * (reading tiles from CB to registers) and packer (writing tiles from registers back to CB)
-                         * threads.
-                         *
-                         * In the this loop, two tiles are read from a circular buffer (CB) into LLK registers, an
-                         LLK
-                         * operation is performed, and then the results are written back to the same CB. If there is
-                         * insufficient synchronization between the packer and unpacker threads, it is possible that
-                         the
-                         * packer thread does not have enough time to fully pack the tiles from the registers back to
-                         * the CB before the next loop iteration begins. As a result, the unpacker thread in the next
-                         * iteration may read tiles into registers before the previous packing operation is complete,
-                         * leading to data hazards and undefined behavior.
-                         *
-                         * Debugging revealed that inserting a delay between loop iterations resolved the issue,
-                         * suggesting a race condition between packing and unpacking. However, since there is no
-                         * semaphore or similar synchronization primitive available in the compute kernel, it is not
-                         * possible to enforce proper synchronization programmatically.
-                         *
-                         * As a temporary workaround, swapping the order of read and write operations helped mitigate
-                         * the issue, but this is not a robust or permanent solution. Proper synchronization between
-                         * packer and unpacker threads is required to ensure data integrity and correct results.
-                         *
-                         * See also: https://github.com/tenstorrent/tt-metal/pull/22340
-                         */
-                        tile_regs_acquire();
-                        copy_tile_to_dst_init_short_with_dt(
-                            input_tensor_transposed_cb_index, index_tensor_transposed_cb_index);
-                        copy_tile(index_tensor_transposed_cb_index, left_tile_id, index_dest_start);
-                        copy_tile(index_tensor_transposed_cb_index, right_tile_id, index_dest_end);
+                        DPRINT_MATH(DPRINT << "[Compute] stage = " << stage << ", sub = " << sub << ", merging "
+                                           << left_tile_id << " and " << right_tile_id << ", dir = " << (int)dir
+                                           << ENDL(););
 
-                        copy_tile_to_dst_init_short_with_dt(
-                            index_tensor_transposed_cb_index, input_tensor_transposed_cb_index);
-                        copy_tile(input_tensor_transposed_cb_index, left_tile_id, input_dest_start);
-                        copy_tile(input_tensor_transposed_cb_index, right_tile_id, input_dest_end);
+                        tile_regs_acquire();
+                        copy_tile_to_dst_init_short(input_tensor_transposed_cb_index);
+                        copy_tile(input_tensor_transposed_cb_index, left_tile_id, INPUT_TILE0);
+                        copy_tile(input_tensor_transposed_cb_index, right_tile_id, INPUT_TILE1);
+
+                        // For now substitue index with value (TODO: Fix)
+                        copy_tile(input_tensor_transposed_cb_index, left_tile_id, INDEX_TILE0);
+                        copy_tile(input_tensor_transposed_cb_index, right_tile_id, INDEX_TILE1);
+
+                        // DPRINT_MATH(DPRINT << "INPUT0 (" << left_tile_id << ") = " << ENDL());
+                        // dprint_tensix_dest_reg_col0(INPUT_TILE0);
+                        // DPRINT_MATH(DPRINT << "INPUT1 (" << right_tile_id << ") = " << ENDL());
+                        // dprint_tensix_dest_reg_col0(INPUT_TILE1);
 
                         ckernel::topk_local_sort(0, (int)dir, 5);
 
+                        // DPRINT_MATH(DPRINT << "OUTPUT0 (" << left_tile_id << ") = " << ENDL());
+                        // dprint_tensix_dest_reg_col0(INPUT_TILE0);
+                        // DPRINT_MATH(DPRINT << "OUTPUT1 (" << right_tile_id << ") = " << ENDL());
+                        // dprint_tensix_dest_reg_col0(INPUT_TILE1);
+
                         tile_regs_commit();
+
                         tile_regs_wait();
-
-                        pack_reconfig_data_format(input_tensor_transposed_cb_index);
-                        pack_tile<true>(input_dest_start, input_tensor_transposed_cb_index, left_tile_id);
-                        pack_tile<true>(input_dest_end, input_tensor_transposed_cb_index, right_tile_id);
-
-                        pack_reconfig_data_format(index_tensor_transposed_cb_index);
-                        pack_tile<true>(index_dest_start, index_tensor_transposed_cb_index, left_tile_id);
-                        pack_tile<true>(index_dest_end, index_tensor_transposed_cb_index, right_tile_id);
-
+                        pack_tile<true>(INPUT_TILE0, input_tensor_transposed_cb_index, left_tile_id);
+                        pack_tile<true>(INPUT_TILE1, input_tensor_transposed_cb_index, right_tile_id);
                         tile_regs_release();
-                        DPRINT << TERM_COMPUTE << "[Compute] i = " << i << TERM_RESET << ENDL();
                     }
-                }  // Wt_per_core loop
-            }  // sub loop
-        }  // stage loop
+                }
+            }
+        }
 
         DPRINT << TERM_COMPUTE << "[Compute] finished second local sort" << TERM_RESET << ENDL();
         cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
@@ -427,9 +452,6 @@ void MAIN {
         // Write everything into value tensor
         // Values tensor
         transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt_per_core);
-
-        // Indexes tensor
-        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
 
     }  // Ht loop
     DPRINT << TERM_COMPUTE << "[Compute] completed" << TERM_RESET << ENDL();
