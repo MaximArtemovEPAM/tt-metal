@@ -25,7 +25,7 @@ void py_bind_flash_mla_decode(py::module& module) {
         Args:
             input_tensor_q (ttnn.Tensor): the input tensor [1 x b x nh x dh]
             input_tensor_k (ttnn.Tensor): the input tensor [b x nkv x   s x dh]
-            input_tensor_v (ttnn.Tensor): the input tensor [b x nkv x   s x dh]
+            head_dim_v (uint32_t): the head dimension of V.
 
 
         Keyword args:
@@ -57,7 +57,7 @@ void py_bind_flash_mla_decode(py::module& module) {
             [](const OperationType& self,
                const ttnn::Tensor& input_tensor_q,
                const ttnn::Tensor& input_tensor_k,
-               const ttnn::Tensor& input_tensor_v,
+               const uint32_t head_dim_v,
                const bool is_causal,
                const std::optional<const Tensor>& attn_mask,
                const std::vector<uint32_t>& cur_pos,
@@ -71,7 +71,7 @@ void py_bind_flash_mla_decode(py::module& module) {
                     queue_id,
                     input_tensor_q,
                     input_tensor_k,
-                    input_tensor_v,
+                    head_dim_v,
                     is_causal,
                     attn_mask,
                     cur_pos,
@@ -83,7 +83,7 @@ void py_bind_flash_mla_decode(py::module& module) {
             },
             py::arg("input_tensor_q").noconvert(),
             py::arg("input_tensor_k").noconvert(),
-            py::arg("input_tensor_v").noconvert(),
+            py::arg("head_dim_v").noconvert(),
             py::kw_only(),
             py::arg("is_causal").noconvert() = true,
             py::arg("attn_mask").noconvert() = std::nullopt,
@@ -105,7 +105,7 @@ void py_bind_flash_mla_decode(py::module& module) {
             [](const PagedOperationType& self,
                const ttnn::Tensor& input_tensor_q,
                const ttnn::Tensor& input_tensor_k,
-               const ttnn::Tensor& input_tensor_v,
+               const uint32_t head_dim_v,
                const ttnn::Tensor& page_table_tensor,
                const bool is_causal,
                const std::optional<const Tensor>& attn_mask,
@@ -119,7 +119,7 @@ void py_bind_flash_mla_decode(py::module& module) {
                     queue_id,
                     input_tensor_q,
                     input_tensor_k,
-                    input_tensor_v,
+                    head_dim_v,
                     page_table_tensor,
                     is_causal,
                     attn_mask,
@@ -131,7 +131,7 @@ void py_bind_flash_mla_decode(py::module& module) {
             },
             py::arg("input_tensor_q").noconvert(),
             py::arg("input_tensor_k").noconvert(),
-            py::arg("input_tensor_v").noconvert(),
+            py::arg("head_dim_v").noconvert(),
             py::arg("page_table_tensor").noconvert(),
             py::kw_only(),
             py::arg("is_causal").noconvert() = true,

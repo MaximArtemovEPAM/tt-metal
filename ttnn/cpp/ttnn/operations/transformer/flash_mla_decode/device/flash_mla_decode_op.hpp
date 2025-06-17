@@ -14,6 +14,7 @@
 namespace ttnn::operations::transformer {
 
 struct FlashMLADecode {
+    const uint32_t head_dim_v;
     const bool is_causal;
     std::vector<uint32_t> cur_pos;
     const std::optional<float> scale;
