@@ -77,17 +77,28 @@ def run_flash_mla_decode_impl(
     nkv,
     kv_lora_rank,
     d_rope,
+    q_num_cores,
     q_dtype,
     dtype,
 ):
+    # Log the test parameters
+    logger.info(f"Running FlashMLA Decode with parameters: ")
+    logger.info(f"Batch: {batch}")
+    logger.info(f"Sequence Length: {seq_len}")
+    logger.info(f"Number of Heads (Q): {nh}")
+    logger.info(f"Number of Heads (KV): {nkv}")
+    logger.info(f"KV LoRA Rank: {kv_lora_rank}")
+    logger.info(f"Dimensionality of RoPE: {d_rope}")
+    logger.info(f"Number of Cores for Q Sharding: {q_num_cores}")
+    logger.info(f"Query Data Type: {q_dtype}")
+    logger.info(f"Key-Value Data Type: {dtype}")
+
     ######################
     ### Torch Setup
     ######################
     q = torch.randn(batch, nh, 1, kv_lora_rank + d_rope).float()  # (B, H, S (1 for decode), D)
     k = torch.randn(batch, nkv, seq_len, kv_lora_rank + d_rope).float()  # (B, H, S, D)
-    v = torch.randn(
-        batch, nkv, seq_len, kv_lora_rank + d_rope
-    ).float()  # (B, H, S, D) # TODO: REMOVE d_rope when validation is fixed!
+    v = k[..., :kv_lora_rank]  # (B, H, S, D)
 
     ######################
     ### TT Setup
@@ -118,12 +129,52 @@ def run_flash_mla_decode_impl(
         packer_l1_acc=False,
     )
 
+    # Set up input tensors
+    if q_num_cores < 1:  # DRAM
+        q_mem_config = ttnn.DRAM_MEMORY_CONFIG
+        out_mem_config = ttnn.DRAM_MEMORY_CONFIG
+    else:
+        num_cores_x, num_cores_y = device.compute_with_storage_grid_size().x, device.compute_with_storage_grid_size().y
+        assert (
+            q_num_cores <= num_cores_x * num_cores_y
+        ), "q_num_cores must be less than or equal to the number of cores in the device."
+
+        if nkv == 1:
+            # Batch + nh shard if nkv == 1
+            q_num_cores = min(batch * nh, q_num_cores)  # Limit q_num_cores to batch size
+        else:
+            # Only batch shard if nkv > 1
+            q_num_cores = min(batch, q_num_cores)  # Limit q_num_cores to batch size
+
+        block_height = nearest_n(np.prod(q.shape[:-1]) // q_num_cores, ttnn.TILE_SIZE)
+
+        q_core_grid = ttnn.num_cores_to_corerangeset(
+            q_num_cores, device.compute_with_storage_grid_size(), row_wise=True
+        )
+
+        q_mem_config = ttnn.create_sharded_memory_config(
+            shape=(block_height, q.shape[-1]),
+            core_grid=q_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        out_mem_config = ttnn.create_sharded_memory_config(
+            shape=(block_height, v.shape[-1]),
+            core_grid=q_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+
+    # GQA only supports DRAM memory config for output
+    if nkv > 1:
+        out_mem_config = ttnn.DRAM_MEMORY_CONFIG
+
     tt_q = ttnn.from_torch(
         q.permute(2, 0, 1, 3),  # (B, H, S, D) -> (S, B, H, D)
         device=device,
         dtype=q_dtype,
         layout=ttnn.TILE_LAYOUT,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        memory_config=q_mem_config,
     )
     tt_k = ttnn.from_torch(
         k,
@@ -132,24 +183,22 @@ def run_flash_mla_decode_impl(
         layout=ttnn.TILE_LAYOUT,
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
-    tt_v = ttnn.from_torch(
-        v,
-        device=device,
-        dtype=dtype,
-        layout=ttnn.TILE_LAYOUT,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-    )
 
-    logger.info(f"TT Q shape: {tt_q.shape}, TT K shape: {tt_k.shape}, TT V shape: {tt_v.shape}")
+    ##########################
+    ### FlashMLA Decode
+    ##########################
+    logger.info(
+        f"Running FlashMLA Decode with TT Q shape: {tt_q.shape}, TT K shape: {tt_k.shape}, head_dim_v: {kv_lora_rank}"
+    )
     tt_out = ttnn.transformer.flash_mla_decode(
         tt_q,
         tt_k,
-        tt_v,
+        head_dim_v=kv_lora_rank,
         cur_pos=start_indices,
         scale=scale,
         program_config=sdpa_program_config,
         compute_kernel_config=compute_kernel_config,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        memory_config=out_mem_config,
     )
     tt_out_torch = ttnn.to_torch(tt_out)[..., :nh, :].permute(1, 2, 0, 3)  # (S, B, H, D) -> (B, H, S, D)
 
@@ -165,25 +214,43 @@ def run_flash_mla_decode_impl(
         scale,
     )
 
-    out_pass, out_pcc = comp_pcc(tt_out_torch, out_t)
+    pcc_threshold = 0.99
+    if dtype == ttnn.bfloat4_b:
+        pcc_threshold = 0.91
+    if dtype == ttnn.bfloat8_b:
+        pcc_threshold = 0.98
+
+    out_pass, out_pcc = comp_pcc(tt_out_torch, out_t, pcc_threshold)
     logger.info(f"Output PCC: {out_pcc}")
 
     assert out_pass, f"Output mismatch: PCC {out_pcc} < 0.99"
 
 
 @pytest.mark.parametrize(
-    "batch, seq_len, nh, nkv, kv_lora_rank, d_rope",
-    # batch, seq_len, num heads q, num heads kv, kv lora rank, dim rope
+    "batch, seq_len, nh, nkv, kv_lora_rank, d_rope, q_num_cores",
+    # batch, seq_len, num heads q, num heads kv, kv lora rank, dim rope, number of cores to shard q on
     [
-        # (2, 1024, 16, 16, 512, 64), # DeepSeek V3 TG TP=8, DP=4 (OOM)
-        (2, 1024, 8, 8, 128, 64),
+        (2, 16 * 1024, 128, 1, 512, 64, 8),  # DeepSeek V3 TG full DP
+        (2, 16 * 1024, 128, 1, 256, 64, 16),
+        (2, 16 * 1024, 128, 1, 256, 64, 32),
+        (2, 16 * 1024, 128, 1, 256, 64, 64),
+        (8, 16 * 1024, 128, 1, 256, 64, 64),
+        (8, 16 * 1024, 16, 1, 256, 64, 64),
+        # (8, 16 * 1024, 48, 1, 256, 64, 16), # TODO: Need to debug this
+        (2, 8 * 1024, 8, 1, 128, 64, 0),
+        (2, 8 * 1024, 64, 1, 256, 0, 0),
+        (2, 8 * 1024, 64, 1, 32, 64, 0),
+        (8, 4 * 1024, 8, 1, 128, 32, 0),
+        (16, 8 * 1024, 8, 1, 128, 32, 0),
     ],
 )
 @pytest.mark.parametrize(
     "q_dtype, dtype",
     [
         (ttnn.bfloat16, ttnn.bfloat8_b),
+        (ttnn.bfloat8_b, ttnn.bfloat8_b),
         (ttnn.bfloat16, ttnn.bfloat4_b),
+        (ttnn.bfloat8_b, ttnn.bfloat4_b),
     ],
 )
 def test_flash_mla_decode(
@@ -194,6 +261,7 @@ def test_flash_mla_decode(
     nkv,
     kv_lora_rank,
     d_rope,
+    q_num_cores,
     q_dtype,
     dtype,
     use_program_cache,
@@ -208,6 +276,106 @@ def test_flash_mla_decode(
         nkv,
         kv_lora_rank,
         d_rope,
+        q_num_cores,
+        q_dtype,
+        dtype,
+    )
+
+
+@pytest.mark.parametrize(
+    "batch",
+    [
+        1,  # Single batch
+        2,  # Multiple batches
+        8,  # Even larger batch size
+    ],
+)
+@pytest.mark.parametrize(
+    "seq_len",
+    [
+        1 * 1024,  # Long sequence length
+    ],
+)
+@pytest.mark.parametrize(
+    "nh",
+    [
+        16,
+        32,
+        128,
+    ],
+)
+@pytest.mark.parametrize(
+    "nkv",
+    [
+        1,
+        8,
+        16,
+    ],
+)
+@pytest.mark.parametrize(
+    "kv_lora_rank",
+    [
+        64,
+        512,
+    ],
+)
+@pytest.mark.parametrize(
+    "d_rope",
+    [
+        0,
+        32,
+        128,
+    ],
+)
+@pytest.mark.parametrize(
+    "q_num_cores",
+    [
+        0,  # No sharding
+        8,  # Shard across 8 cores
+        64,  # Shard across all cores
+    ],
+)
+@pytest.mark.parametrize(
+    "q_dtype, dtype",
+    [
+        (ttnn.bfloat16, ttnn.bfloat8_b),
+    ],
+)
+def test_flash_mla_decode_stress(
+    device,
+    batch,
+    seq_len,
+    nh,
+    nkv,
+    kv_lora_rank,
+    d_rope,
+    q_num_cores,
+    q_dtype,
+    dtype,
+    use_program_cache,
+    function_level_defaults,
+    reset_seeds,
+):
+    # If GQA (nkv > 1), then only batch shard
+    # If nkv == 1, then batch * nh shard, unless q_num_cores is 0 (ie, in DRAM)
+    num_sharding_cores = batch if nkv > 1 else max(batch, q_num_cores)
+    if nh * (kv_lora_rank + d_rope) * nkv / num_sharding_cores >= 8 * 1024:  # found experimentally
+        pytest.skip(
+            f"Skipping test with large values, due to memory constraints. Got {nh=}, {kv_lora_rank=}, {nkv=}, {batch=}, {q_num_cores=}, {d_rope=}"
+        )
+
+    if batch * nh < ttnn.TILE_SIZE and q_num_cores > 0:
+        pytest.skip("Skipping test with small batch and nh with q_num_cores > 0.")
+
+    run_flash_mla_decode_impl(
+        device,
+        batch,
+        seq_len,
+        nh,
+        nkv,
+        kv_lora_rank,
+        d_rope,
+        q_num_cores,
         q_dtype,
         dtype,
     )

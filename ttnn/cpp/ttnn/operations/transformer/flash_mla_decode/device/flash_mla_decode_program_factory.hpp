@@ -13,7 +13,7 @@ namespace ttnn::operations::transformer::detail {
 tt::tt_metal::operation::ProgramWithCallbacks flash_mla_decode_multi_core(
     const Tensor& input_tensor_q,
     const Tensor& input_tensor_k,
-    const Tensor& input_tensor_v,
+    const uint32_t head_dim_v,
     std::optional<const Tensor> cur_pos_tensor,
     std::optional<const Tensor> page_table_tensor,
     std::optional<const Tensor> attn_mask,

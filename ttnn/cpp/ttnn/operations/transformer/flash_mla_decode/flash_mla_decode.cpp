@@ -36,7 +36,7 @@ ttnn::Tensor ExecuteFlashMLADecode::invoke(
     QueueId queue_id,
     const ttnn::Tensor& input_tensor_q,
     const ttnn::Tensor& input_tensor_k,
-    const ttnn::Tensor& input_tensor_v,
+    const uint32_t head_dim_v,
     const bool is_causal,
     const std::optional<const Tensor>& attn_mask,
     const std::vector<uint32_t>& cur_pos,
@@ -71,6 +71,7 @@ ttnn::Tensor ExecuteFlashMLADecode::invoke(
 
     return operation::run(
                FlashMLADecode{
+                   .head_dim_v = head_dim_v,
                    .is_causal = is_causal,
                    .cur_pos = cur_pos,
                    .scale = scale,
@@ -79,7 +80,7 @@ ttnn::Tensor ExecuteFlashMLADecode::invoke(
                    .compute_kernel_config = kernel_config_val,
                    .k_chunk_size = k_chunk_size,
                    .paged_attention = false},
-               {input_tensor_q, input_tensor_k, input_tensor_v},
+               {input_tensor_q, input_tensor_k},
                {cur_pos_tensor, std::nullopt, attn_mask},
                {},
                queue_id)
@@ -89,7 +90,7 @@ ttnn::Tensor ExecuteFlashMLADecode::invoke(
 ttnn::Tensor ExecuteFlashMLADecode::invoke(
     const ttnn::Tensor& input_tensor_q,
     const ttnn::Tensor& input_tensor_k,
-    const ttnn::Tensor& input_tensor_v,
+    const uint32_t head_dim_v,
     const bool is_causal,
     const std::optional<const Tensor>& attn_mask,
     const std::vector<uint32_t>& cur_pos,
@@ -102,7 +103,7 @@ ttnn::Tensor ExecuteFlashMLADecode::invoke(
         DefaultQueueId,
         input_tensor_q,
         input_tensor_k,
-        input_tensor_v,
+        head_dim_v,
         is_causal,
         attn_mask,
         cur_pos,
@@ -117,7 +118,7 @@ ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
     QueueId queue_id,
     const ttnn::Tensor& input_tensor_q,
     const ttnn::Tensor& input_tensor_k,
-    const ttnn::Tensor& input_tensor_v,
+    const uint32_t head_dim_v,
     const ttnn::Tensor& page_table_tensor,
     const bool is_causal,
     const std::optional<const Tensor>& attn_mask,
@@ -150,6 +151,7 @@ ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
 
     return operation::run(
                FlashMLADecode{
+                   .head_dim_v = head_dim_v,
                    .is_causal = is_causal,
                    .cur_pos = std::vector<uint32_t>(),
                    .scale = scale,
@@ -158,7 +160,7 @@ ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
                    .compute_kernel_config = kernel_config_val,
                    .k_chunk_size = k_chunk_size,
                    .paged_attention = true},
-               {input_tensor_q, input_tensor_k, input_tensor_v},
+               {input_tensor_q, input_tensor_k},
                {cur_pos_tensor, page_table_tensor, attn_mask},
                {},
                queue_id)
@@ -168,7 +170,7 @@ ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
 ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
     const ttnn::Tensor& input_tensor_q,
     const ttnn::Tensor& input_tensor_k,
-    const ttnn::Tensor& input_tensor_v,
+    const uint32_t head_dim_v,
     const ttnn::Tensor& page_table_tensor,
     const bool is_causal,
     const std::optional<const Tensor>& attn_mask,
@@ -181,7 +183,7 @@ ttnn::Tensor ExecutePagedFlashMLADecode::invoke(
         DefaultQueueId,
         input_tensor_q,
         input_tensor_k,
-        input_tensor_v,
+        head_dim_v,
         page_table_tensor,
         is_causal,
         attn_mask,
