@@ -6,6 +6,7 @@
 
 #include <tt_stl/indestructible.hpp>
 #include <tt-metalium/dispatch_core_common.hpp>
+#include <tt-metalium/distributed_context.hpp>
 #include <tt-metalium/core_descriptor.hpp>
 #include <tt-metalium/hal_types.hpp>
 #include "dev_msgs.h"
@@ -73,6 +74,8 @@ public:
         std::optional<uint8_t> num_routing_planes = std::nullopt);
     void initialize_fabric_config();
     tt_metal::FabricConfig get_fabric_config() const;
+
+    distributed::multihost::DistributedContext& get_distributed_context();
 
 private:
     friend class tt::stl::Indestructible<MetalContext>;
