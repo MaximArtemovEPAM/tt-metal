@@ -312,10 +312,10 @@ void MAIN {
 
             DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] math running min/max" << TERM_RESET << ENDL());
 
-            // DPRINT_MATH(DPRINT << "TILE_INPUT0 = " << ENDL());
-            // dprint_tensix_dest_reg(TILE_INPUT0);
-            // DPRINT_MATH(DPRINT << "TILE_INPUT1 = " << ENDL());
-            // dprint_tensix_dest_reg(TILE_INPUT1);
+            DPRINT_MATH(DPRINT << "TILE_INPUT0 = " << ENDL());
+            dprint_tensix_dest_reg_col0(TILE_INPUT0);
+            DPRINT_MATH(DPRINT << "TILE_INPUT1 = " << ENDL());
+            dprint_tensix_dest_reg_col0(TILE_INPUT1);
 
             // Problem: How to select matching index
             // Solution #1: Use topk merge
@@ -324,25 +324,34 @@ void MAIN {
             //      __m128i vmask = _mm_cmple_ps(vin0, vin1)
             //      __m128i vout = _mm_blendv_epi8(vin0, vin1, vmask)
             //      __m128i vidx = _mm_blendv_epi8(vidx0, vdix1, vmask)
+            // if (select_min) {
+            //     binary_min_tile_init();
+            //     binary_min_tile(TILE_INPUT0, TILE_INPUT1);
+            // } else {
+            //     binary_max_tile_init();
+            //     binary_max_tile(TILE_INPUT0, TILE_INPUT1);
+            // }
+            ckernel::topk_merge(TILE_INPUT0, (int)5, 32);
+
+            uint32_t output_value_tile = TILE_INPUT0;
+            uint32_t output_index_tile = TILE_INDEX0;
             if (select_min) {
-                binary_min_tile_init();
-                binary_min_tile(TILE_INPUT0, TILE_INPUT1);
-            } else {
-                binary_max_tile_init();
-                binary_max_tile(TILE_INPUT0, TILE_INPUT1);
+                output_value_tile = TILE_INPUT1;
+                output_index_tile = TILE_INDEX1;
             }
-            // DPRINT_MATH(DPRINT << "TILE_OUTPUT = " << ENDL());
-            // dprint_tensix_dest_reg(TILE_INPUT0);
+
+            DPRINT_MATH(DPRINT << "TILE_OUTPUT = " << ENDL());
+            dprint_tensix_dest_reg_col0(output_value_tile);
 
             tile_regs_commit();
 
             tile_regs_wait();
 
             pack_reconfig_data_format(input_tensor_transposed_cb_index);
-            pack_tile<true>(TILE_INPUT0, input_tensor_transposed_cb_index, i);
+            pack_tile<true>(output_value_tile, input_tensor_transposed_cb_index, i);
 
             pack_reconfig_data_format(input_tensor_transposed_cb_index);
-            pack_tile<true>(TILE_INDEX0, index_tensor_transposed_cb_index, i);
+            pack_tile<true>(output_index_tile, index_tensor_transposed_cb_index, i);
 
             tile_regs_release();
 
