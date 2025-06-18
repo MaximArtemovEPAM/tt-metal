@@ -676,6 +676,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
 
     const uint32_t CORE_COUNT = 2;
     const uint32_t Wt_per_core = Wt / CORE_COUNT;
+    const uint32_t num_cores_y = 1;
 
     // if (Ht >= total_number_of_cores) {
     //     core_range = CoreRangeSet(
@@ -763,8 +764,6 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_cb_index, sync_cb_data_format}})
             .set_page_size(sync_cb_index, sync_tile_size);
     auto cb_sync = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_cb_index_config);
-
-    const uint32_t num_cores_y = compute_with_storage_grid_size.y;
 
     // Kernels
     const std::vector<uint32_t> reader_compile_time_args = {

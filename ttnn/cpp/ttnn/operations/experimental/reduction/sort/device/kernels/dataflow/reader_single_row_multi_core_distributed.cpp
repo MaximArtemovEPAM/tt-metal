@@ -70,6 +70,8 @@ void kernel_main() {
         // const uint32_t h = core_loop * total_number_of_cores +
         //                    get_absolute_logical_y() * compute_with_storage_grid_size_x + get_absolute_logical_x();
         const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
+        DPRINT << TERM_READER << "[Reader] core loop = " << core_loop << " Ht = " << h
+               << ", num_cores_y = " << num_cores_y << TERM_RESET << ENDL();
 
         // Read input value data
         DPRINT << TERM_READER << "[Reader] writing value tiles" << TERM_RESET << ENDL();
