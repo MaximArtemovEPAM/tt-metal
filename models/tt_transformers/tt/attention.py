@@ -404,6 +404,7 @@ class Attention(LightweightModule):
             xqkv_fused_sharded = xqkv_fused_sharded + self.wqkv_bias_decode[num_tiles - 1]
 
         ttnn.deallocate(x)
+        print("reducing 407 attention.py")
         xqkv_fused = tt_all_reduce(
             xqkv_fused_sharded,
             self.mesh_device,
@@ -533,6 +534,7 @@ class Attention(LightweightModule):
             attn_output_cat = ttnn.to_memory_config(
                 attn_output_cat, self.model_config["ATTN_ALL_GATHER_MATMUL_OUTPUT_MEMCFG"]
             )
+            print("all_gather_matmul 537 attention.py")
             _, dense_out_sharded, _ = ttnn.experimental.all_gather_matmul(
                 attn_output_cat,
                 self.wo,
@@ -549,6 +551,7 @@ class Attention(LightweightModule):
             return dense_out_sharded
 
         else:
+            print("gathering 554 attention.py")
             attn_output = tt_all_gather(
                 attn_output_cat,
                 self.mesh_device,
@@ -585,6 +588,7 @@ class Attention(LightweightModule):
             ttnn.deallocate(attn_output_cat)
 
             # All reduce
+            print("reducing 591 attention.py")
             dense_out_reduced = tt_all_reduce(
                 dense_out_sharded,
                 self.mesh_device,
@@ -649,6 +653,7 @@ class Attention(LightweightModule):
         if self.wqkv_bias_prefill is not None:
             xqkv_fused = xqkv_fused + self.wqkv_bias_prefill
 
+        print("reducing 656 attention.py")
         xqkv_fused = tt_all_reduce(
             xqkv_fused,
             self.mesh_device,
@@ -812,6 +817,7 @@ class Attention(LightweightModule):
 
         # Non fused All Gather Matmul
         if self.use_fused_all_gather_matmul:  # is true for Ring topology
+            print("gatherign 820 attention.py")
             attn_output_11SH = ttnn.all_gather(
                 attn_output_11SH,
                 dim=3,
@@ -835,6 +841,7 @@ class Attention(LightweightModule):
 
         # Reduce-scatter
         if not self.use_fused_all_gather_matmul:
+            print("reducing 844 attention.py")
             output_11SH = tt_all_reduce(
                 output_11SH,
                 self.mesh_device,

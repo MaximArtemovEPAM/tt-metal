@@ -22,6 +22,9 @@ class TransformerBlock(LightweightModule):
         transformation_mats,
         paged_attention_config=None,
         use_paged_kv_cache=False,
+        from_remote_semaphore_handles=None,
+        to_remote_semaphore_handles=None,
+        worker_sub_device_id=None,
     ):
         super().__init__()
 
@@ -78,6 +81,9 @@ class TransformerBlock(LightweightModule):
             ),
             args,
             TG=args.is_galaxy,
+            from_remote_semaphore_handles=from_remote_semaphore_handles,
+            to_remote_semaphore_handles=to_remote_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
         self.ff_norm = DistributedNorm(
             RMSNorm(
@@ -96,6 +102,9 @@ class TransformerBlock(LightweightModule):
             ),
             args,
             TG=args.is_galaxy,
+            from_remote_semaphore_handles=from_remote_semaphore_handles,
+            to_remote_semaphore_handles=to_remote_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
 
     def forward(

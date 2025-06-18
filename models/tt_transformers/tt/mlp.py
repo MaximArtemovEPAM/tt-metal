@@ -13,7 +13,18 @@ from models.tt_transformers.tt.model_config import OpGroup, TensorGroup
 
 class MLP(LightweightModule):
     def __init__(
-        self, mesh_device, args, state_dict, weight_cache_path, layer_num, dtype, model_config, state_dict_prefix=None
+        self,
+        mesh_device,
+        args,
+        state_dict,
+        weight_cache_path,
+        layer_num,
+        dtype,
+        model_config,
+        state_dict_prefix=None,
+        from_remote_semaphore_handles=None,
+        to_remote_semaphore_handles=None,
+        worker_sub_device_id=None,
     ):
         super().__init__()
 
@@ -28,6 +39,10 @@ class MLP(LightweightModule):
         pad_hidden_dim = lambda tensor, dim: pad_to_size(tensor, dim=dim, size=args.hidden_dim)
         # If pading was applied (e.g. via env var), add the unpadded hidden dim to the cache name to avoid loading incorrect weights
         hidden_dim_string = f".hidden_dim_{args.hidden_dim}" if args.hidden_dim != args.unpadded_hidden_dim else ""
+
+        self.from_remote_semaphore_handles = from_remote_semaphore_handles
+        self.to_remote_semaphore_handles = to_remote_semaphore_handles
+        self.worker_sub_device_id = worker_sub_device_id
 
         if args.dummy_weights:
             cache_name = lambda _: None
@@ -135,6 +150,7 @@ class MLP(LightweightModule):
             #     w3_out = ttnn.to_memory_config(w3_out, ttnn.DRAM_MEMORY_CONFIG)
             if self.dim == 8192 or mode == "prefill":
                 input_mem_cfg = w1_out.memory_config()
+                print("reducing twice 138 mlp")
                 w1_out = ttnn.reduce_scatter(
                     w1_out,
                     dim=3,
@@ -156,6 +172,7 @@ class MLP(LightweightModule):
                     memory_config=self.model_config["FF1_OUT_REDUCE_SCATTER_MEMCFG"] if mode == "decode" else None,
                 )
             else:
+                print("reducing twice 160 mlp")
                 w1_out = tt_all_reduce(
                     w1_out,
                     self.mesh_device,
@@ -191,6 +208,7 @@ class MLP(LightweightModule):
         ttnn.deallocate(w1_out)
 
         if TG and (self.dim == 8192 or mode == "prefill"):
+            print("gathering 194 mlp.py")
             w2_in = ttnn.all_gather(
                 w2_in,
                 3,
@@ -218,6 +236,24 @@ class MLP(LightweightModule):
         ttnn.deallocate(w2_in)
         # if mode == "decode" and not TG:
         #     w2_out = ttnn.sharded_to_interleaved(w2_out, ttnn.DRAM_MEMORY_CONFIG)
+        print("reducing 224 mlp.py")
+        # w2_out_reduced = tt_all_reduce(
+        #     w2_out,
+        #     self.mesh_device,
+        #     cluster_axis=0,
+        #     dim=0 if (TG and self.dim < 8192) else 3,
+        #     num_reduce_scatter_links=self.args.num_reduce_scatter_links,
+        #     num_all_gather_links=self.args.num_all_gather_links,
+        #     sharded=(mode == "decode"),
+        #     memory_config=(
+        #         (self.model_config["FF2_OUT_REDUCE_SCATTER_MEMCFG"] if TG else w2_out.memory_config())
+        #         if mode == "decode"
+        #         else ttnn.DRAM_MEMORY_CONFIG
+        #     ),
+        #     dtype=self.args.ccl_dtype,
+        #     use_composite=True if self.dim == 8192 else False,
+        #     topology=self.args.ccl_topology(),
+        # )
         w2_out_reduced = tt_all_reduce(
             w2_out,
             self.mesh_device,
@@ -234,6 +270,9 @@ class MLP(LightweightModule):
             dtype=self.args.ccl_dtype,
             use_composite=True if self.dim == 8192 else False,
             topology=self.args.ccl_topology(),
+            from_remote_semaphore_handles=self.from_remote_semaphore_handles,
+            to_remote_semaphore_handles=self.to_remote_semaphore_handles,
+            worker_sub_device_id=self.worker_sub_device_id,
         )
 
         # Ensure dim 0 and 1 are 1

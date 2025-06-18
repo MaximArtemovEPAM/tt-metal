@@ -8,9 +8,21 @@ from models.tt_transformers.tt.ccl import tt_distributed_rmsnorm, tt_sharded_dis
 
 
 class DistributedNorm(LightweightModule):
-    def __init__(self, norm, args, TG=False):
+    def __init__(
+        self,
+        norm,
+        args,
+        TG=False,
+        from_remote_semaphore_handles=None,
+        to_remote_semaphore_handles=None,
+        worker_sub_device_id=None,
+    ):
         self.norm = norm
         self.args = args
+
+        self.from_remote_semaphore_handles = from_remote_semaphore_handles
+        self.to_remote_semaphore_handles = to_remote_semaphore_handles
+        self.worker_sub_device_id = worker_sub_device_id
 
         if TG:
             core_grid_ln = (
@@ -70,7 +82,17 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm already performs a gather
         if self.args.is_multichip and not self.args.is_distributed_norm(mode):
-            x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology(), memory_config=input_mem_cfg)
+            print("gathering 73 distributed_norm.py")
+            # x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology(), memory_config=input_mem_cfg)
+            x = ttnn.experimental.all_gather_async(
+                x,
+                dim=3,
+                multi_device_global_semaphore=self.from_remote_semaphore_handles,
+                num_links=1,
+                memory_config=input_mem_cfg,
+                topology=self.args.ccl_topology(),
+                subdevice_id=self.worker_sub_device_id,
+            )
         else:
             x = ttnn.to_memory_config(x, input_mem_cfg)
 
@@ -78,6 +100,7 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm requires a gather
         if self.args.is_distributed_norm(mode):
+            print("gathering 82 distributed_norm.py")
             x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology())
 
         return x

@@ -18,6 +18,9 @@ def tt_all_reduce(
     sharded=False,
     dtype=ttnn.bfloat16,
     use_composite=False,
+    from_remote_semaphore_handles=None,
+    to_remote_semaphore_handles=None,
+    worker_sub_device_id=None,
 ):
     # N150
     if list(mesh_device.shape) == [1, 1] or (cluster_axis == 1 and 1 in list(mesh_device.shape)):
@@ -36,13 +39,24 @@ def tt_all_reduce(
             input_tensor_sharded = input_tensor
             input_tensor = ttnn.sharded_to_interleaved(input_tensor_sharded, ttnn.L1_MEMORY_CONFIG)
             input_tensor_sharded.deallocate(True)
-        reduced = ttnn.reduce_scatter(
+        # reduced = ttnn.reduce_scatter(
+        #     input_tensor,
+        #     dim=dim,
+        #     math_op=ttnn.ReduceType.Sum,
+        #     num_links=num_reduce_scatter_links,
+        #     topology=topology,
+        #     memory_config=memory_config,
+        # )
+        reduced = ttnn.experimental.reduce_scatter_async(
             input_tensor,
             dim=dim,
+            from_remote_multi_device_global_semaphore=from_remote_semaphore_handles,
+            to_remote_multi_device_global_semaphore=to_remote_semaphore_handles,
             math_op=ttnn.ReduceType.Sum,
             num_links=num_reduce_scatter_links,
-            topology=topology,
             memory_config=memory_config,
+            topology=topology,
+            subdevice_id=worker_sub_device_id,
         )
         input_tensor.deallocate(True)
         return reduced
