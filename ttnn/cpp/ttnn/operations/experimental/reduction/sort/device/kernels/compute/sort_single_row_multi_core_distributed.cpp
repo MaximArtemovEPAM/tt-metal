@@ -462,6 +462,18 @@ void MAIN {
                         // dprint_tensix_dest_reg_col0(INPUT_TILE1);
 
                         ckernel::topk_local_sort(0, (int)dir, 5);
+                        // ckernel::topk_merge(INPUT_TILE0, 32, 5);
+
+                        // uint32_t min_value_tile = INPUT_TILE0;
+                        // uint32_t max_value_tile = INPUT_TILE1;
+                        // uint32_t min_index_tile = INDEX_TILE0;
+                        // uint32_t max_index_tile = INDEX_TILE1;
+                        // if (!dir) {
+                        //     min_value_tile = INPUT_TILE1;
+                        //     max_value_tile = INPUT_TILE0;
+                        //     min_index_tile = INDEX_TILE1;
+                        //     max_index_tile = INDEX_TILE0;
+                        // }
 
                         // DPRINT_MATH(DPRINT << "OUTPUT0 (" << left_tile_id << ") = " << ENDL());
                         // dprint_tensix_dest_reg_col0(INPUT_TILE0);
