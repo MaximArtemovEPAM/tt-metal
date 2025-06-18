@@ -703,6 +703,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
 
     // Semaphore setup
     const uint32_t sem_value_id = CreateSemaphore(program, core_range, 0);
+    const uint32_t sem_index_id = CreateSemaphore(program, core_range, 0);
 
     // Circular buffers
     constexpr uint32_t input_tensor_cb_index = tt::CBIndex::c_0;
@@ -758,17 +759,33 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
             .set_page_size(value_tensor_other_cb_index, value_tensor_tile_size);
     auto cb_value_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, value_tensor_other_cb_config);
 
+    constexpr uint32_t index_tensor_other_cb_index = tt::CBIndex::c_7;
+    const tt::tt_metal::CircularBufferConfig index_tensor_other_cb_config =
+        tt::tt_metal::CircularBufferConfig(
+            index_tensor_tile_size, {{index_tensor_other_cb_index, index_tensor_cb_data_format}})
+            .set_page_size(index_tensor_other_cb_index, index_tensor_tile_size);
+    auto cb_index_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_other_cb_config);
+
     // NOTE: This CB is only used to synchronised Computer kernel and Writer kernel
-    constexpr uint32_t sync_cb_index = tt::CBIndex::c_7;
-    const tt::tt_metal::CircularBufferConfig sync_cb_index_config =
-        tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_cb_index, sync_cb_data_format}})
-            .set_page_size(sync_cb_index, sync_tile_size);
-    auto cb_sync = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_cb_index_config);
+    constexpr uint32_t sync_with_writer_cb_index = tt::CBIndex::c_8;
+    const tt::tt_metal::CircularBufferConfig sync_with_writer_cb_config =
+        tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_with_writer_cb_index, sync_cb_data_format}})
+            .set_page_size(sync_with_writer_cb_index, sync_tile_size);
+    auto cb_sync_with_writer = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_with_writer_cb_config);
+
+    constexpr uint32_t sync_with_reader_cb_index = tt::CBIndex::c_9;
+    const tt::tt_metal::CircularBufferConfig sync_with_reader_cb_config =
+        tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_with_reader_cb_index, sync_cb_data_format}})
+            .set_page_size(sync_with_reader_cb_index, sync_tile_size);
+    auto cb_sync_with_reader = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_with_reader_cb_config);
 
     // Kernels
     const std::vector<uint32_t> reader_compile_time_args = {
         input_tensor_cb_index,
         index_tensor_output_cb_index,
+        index_tensor_transposed_cb_index,
+        index_tensor_other_cb_index,
+        sync_with_reader_cb_index,
         static_cast<uint32_t>(input_tensor_is_dram),
         static_cast<uint32_t>(index_tensor_is_dram),
         Wt,
@@ -777,7 +794,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         total_number_of_cores,
         num_cores_y,
         compute_with_storage_grid_size.x,
-        compute_with_storage_grid_size.y};
+        compute_with_storage_grid_size.y,
+        sem_index_id};
     const std::string reader_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
         "reader_single_row_multi_core_distributed.cpp";
@@ -796,7 +814,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         index_tensor_cb_index,
         input_tensor_transposed_cb_index,
         value_tensor_other_cb_index,
-        sync_cb_index,
+        sync_with_writer_cb_index,
         static_cast<uint32_t>(value_tensor_is_dram),
         Wt,
         Wt_per_core,
@@ -825,7 +843,9 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         value_tensor_cb_index,
         index_tensor_output_cb_index,
         value_tensor_other_cb_index,
-        sync_cb_index,
+        index_tensor_other_cb_index,
+        sync_with_writer_cb_index,
+        sync_with_reader_cb_index,
         Wt,
         Wt_per_core,
         static_cast<uint32_t>(attributes.descending),
@@ -857,12 +877,18 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     uint32_t loop_count = 0;
 
     constexpr uint32_t PHYSICAL_GRID_SIZE_Y = 32;
-    {
+    {  // core 0
         SetRuntimeArgs(
             program,
             reader_kernel_id,
             core0,
-            {input_buffer->address(), index_buffer->address(), all_core_utilization_loop_count});
+            {input_buffer->address(),
+             index_buffer->address(),
+             all_core_utilization_loop_count,
+             physical_coord_core0.x,
+             physical_coord_core0.y,
+             physical_coord_core1.x,
+             physical_coord_core1.y});
         SetRuntimeArgs(
             program,
             writer_kernel_id,
@@ -876,12 +902,18 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         SetRuntimeArgs(program, compute_kernel_id, core0, {all_core_utilization_loop_count, true});
     }
 
-    {
+    {  // core 1
         SetRuntimeArgs(
             program,
             reader_kernel_id,
             core1,
-            {input_buffer->address(), index_buffer->address(), all_core_utilization_loop_count});
+            {input_buffer->address(),
+             index_buffer->address(),
+             all_core_utilization_loop_count,
+             physical_coord_core1.x,
+             physical_coord_core1.y,
+             physical_coord_core0.x,
+             physical_coord_core0.y});
         SetRuntimeArgs(
             program,
             writer_kernel_id,

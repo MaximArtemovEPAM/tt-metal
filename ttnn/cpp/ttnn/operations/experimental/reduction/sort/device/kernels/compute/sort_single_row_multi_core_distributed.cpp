@@ -88,17 +88,19 @@ void MAIN {
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(4);
     constexpr uint32_t index_tensor_output_cb_index = get_compile_time_arg_val(5);
     constexpr uint32_t value_tensor_other_cb_index = get_compile_time_arg_val(6);
-    constexpr uint32_t sync_cb_index = get_compile_time_arg_val(7);
+    constexpr uint32_t index_tensor_other_cb_index = get_compile_time_arg_val(7);
+    constexpr uint32_t sync_with_writer_cb_index = get_compile_time_arg_val(8);  // TO-FIX
+    constexpr uint32_t sync_with_reader_cb_index = get_compile_time_arg_val(9);  // TO-FIX
 
-    constexpr uint32_t Wt = get_compile_time_arg_val(8);
-    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(9);
-    constexpr bool descending = get_compile_time_arg_val(10);
+    constexpr uint32_t Wt = get_compile_time_arg_val(10);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(11);
+    constexpr bool descending = get_compile_time_arg_val(12);
     constexpr bool stable =
-        get_compile_time_arg_val(11);  // TODO: In the future change LLK to have the option or add additional step with
+        get_compile_time_arg_val(13);  // TODO: In the future change LLK to have the option or add additional step with
                                        // checking values and indexes after the sorting
                                        // Issue: https://github.com/tenstorrent/tt-metal/issues/20625
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(12);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(13);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(14);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(15);
 
     constexpr uint32_t one_tile = 1;
 
@@ -248,17 +250,13 @@ void MAIN {
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
         cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
 
-        // Indexes tensor
-        DPRINT << TERM_COMPUTE << "[Compute] transpose and pack index" << TERM_RESET << ENDL();
-        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
+        // Synchronize with Writer: Writer can start reading input_tensor_transposed_cb_index
+        cb_reserve_back(sync_with_writer_cb_index, one_tile);
+        cb_push_back(sync_with_writer_cb_index, one_tile);
 
-        // DPRINT << TERM_COMPUTE << "[Compute] cb_push_back()" << TERM_RESET << ENDL();
-
-        // Debug: Print first tile of input_tensor_transposed_cb_index
-
-        // Syncrhonize with Writer: Writer can start reading input_tensor_transposed_cb_index
-        cb_reserve_back(sync_cb_index, one_tile);
-        cb_push_back(sync_cb_index, one_tile);
+        // Synchronize with Reader: Reader can start reading index_tensor_tranpsosed_cb_index
+        cb_reserve_back(sync_with_reader_cb_index, one_tile);
+        cb_push_back(sync_with_reader_cb_index, one_tile);
 
         // Second phase: use second circular buffer
         // 1. read 2 tiles from input_tensor_cb / input_other_cb
@@ -266,6 +264,8 @@ void MAIN {
 
         const uint32_t TILE_INPUT0 = 0;
         const uint32_t TILE_INPUT1 = 1;
+        const uint32_t TILE_INDEX0 = 2;
+        const uint32_t TILE_INDEX1 = 3;
 
         // TODO: exchange indices
         // TODO: Since minmax does not guarantee a stable sort, we will have to figure something else
@@ -289,8 +289,11 @@ void MAIN {
             DPRINT_UNPACK(
                 DPRINT << TERM_COMPUTE << "[Compute] waiting for tiles on other_cb = " << value_tensor_other_cb_index
                        << TERM_RESET << ENDL());
+
             cb_wait_front(value_tensor_other_cb_index, one_tile);
             cb_wait_front(input_tensor_transposed_cb_index, one_tile);
+            cb_wait_front(index_tensor_other_cb_index, one_tile);
+            cb_wait_front(index_tensor_transposed_cb_index, one_tile);
 
             tile_regs_acquire();
 
@@ -301,6 +304,12 @@ void MAIN {
             copy_tile_to_dst_init_short(input_tensor_transposed_cb_index);
             copy_tile(input_tensor_transposed_cb_index, FIRST_TILE, TILE_INPUT0);
 
+            copy_tile_to_dst_init_short(index_tensor_other_cb_index);
+            copy_tile(index_tensor_other_cb_index, FIRST_TILE, TILE_INDEX1);
+
+            copy_tile_to_dst_init_short(index_tensor_transposed_cb_index);
+            copy_tile(index_tensor_transposed_cb_index, FIRST_TILE, TILE_INDEX1);
+
             DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] math running min/max" << TERM_RESET << ENDL());
 
             // DPRINT_MATH(DPRINT << "TILE_INPUT0 = " << ENDL());
@@ -308,6 +317,13 @@ void MAIN {
             // DPRINT_MATH(DPRINT << "TILE_INPUT1 = " << ENDL());
             // dprint_tensix_dest_reg(TILE_INPUT1);
 
+            // Problem: How to select matching index
+            // Solution #1: Use topk merge
+            // Solution #2: SIMD-styled bit-select pattern
+            // SSE-styled example:
+            //      __m128i vmask = _mm_cmple_ps(vin0, vin1)
+            //      __m128i vout = _mm_blendv_epi8(vin0, vin1, vmask)
+            //      __m128i vidx = _mm_blendv_epi8(vidx0, vdix1, vmask)
             if (select_min) {
                 binary_min_tile_init();
                 binary_min_tile(TILE_INPUT0, TILE_INPUT1);
@@ -325,10 +341,15 @@ void MAIN {
             pack_reconfig_data_format(input_tensor_transposed_cb_index);
             pack_tile<true>(TILE_INPUT0, input_tensor_transposed_cb_index, i);
 
+            pack_reconfig_data_format(input_tensor_transposed_cb_index);
+            pack_tile<true>(TILE_INDEX0, index_tensor_transposed_cb_index, i);
+
             tile_regs_release();
 
             cb_pop_front(value_tensor_other_cb_index, one_tile);
             cb_pop_front(input_tensor_transposed_cb_index, one_tile);
+            cb_pop_front(index_tensor_other_cb_index, one_tile);
+            cb_pop_front(index_tensor_transposed_cb_index, one_tile);
         }
         DPRINT << TERM_COMPUTE << "[Compute] finished min/max" << TERM_RESET << ENDL();
 
@@ -337,9 +358,13 @@ void MAIN {
 
         // Right now, input_tensor_transposed_cb_index is empty
         cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_reserve_back(index_tensor_transposed_cb_index, Wt_per_core);
+
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
 
         cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_wait_front(index_tensor_transposed_cb_index, Wt_per_core);
 
         // Sorting order:
         // 0i <-> 2d [i]
@@ -362,9 +387,8 @@ void MAIN {
             copy_tile(input_tensor_transposed_cb_index, i, INPUT_TILE0);
             copy_tile(input_tensor_transposed_cb_index, i + 1, INPUT_TILE1);
 
-            // Substitute for index tiles (TODO: Fix this)
-            copy_tile(input_tensor_transposed_cb_index, i, INDEX_TILE0);
-            copy_tile(input_tensor_transposed_cb_index, i, INDEX_TILE1);
+            copy_tile(index_tensor_transposed_cb_index, i, INDEX_TILE0);
+            copy_tile(index_tensor_transposed_cb_index, i + 1, INDEX_TILE1);
 
             constexpr uint32_t end_phase = 5;
             ckernel::topk_local_sort(INPUT_TILE0, (int)ascending_local, end_phase);
@@ -377,8 +401,14 @@ void MAIN {
             tile_regs_commit();
 
             tile_regs_wait();
+            pack_reconfig_data_format(input_tensor_transposed_cb_index);
             pack_tile<true>(TILE_INPUT0, input_tensor_transposed_cb_index, i);
             pack_tile<true>(TILE_INPUT1, input_tensor_transposed_cb_index, i + 1);
+
+            pack_reconfig_data_format(index_tensor_transposed_cb_index);
+            pack_tile<true>(TILE_INDEX0, index_tensor_transposed_cb_index, i);
+            pack_tile<true>(TILE_INDEX1, index_tensor_transposed_cb_index, i + 1);
+
             tile_regs_release();
 
             ascending_local = switch_dir ? !ascending_local : ascending_local;
@@ -432,8 +462,14 @@ void MAIN {
                         tile_regs_commit();
 
                         tile_regs_wait();
+                        pack_reconfig_data_format(input_tensor_transposed_cb_index);
                         pack_tile<true>(INPUT_TILE0, input_tensor_transposed_cb_index, left_tile_id);
                         pack_tile<true>(INPUT_TILE1, input_tensor_transposed_cb_index, right_tile_id);
+
+                        pack_reconfig_data_format(index_tensor_transposed_cb_index);
+                        pack_tile<true>(INDEX_TILE0, index_tensor_transposed_cb_index, left_tile_id);
+                        pack_tile<true>(INDEX_TILE1, index_tensor_transposed_cb_index, right_tile_id);
+
                         tile_regs_release();
                     }
                 }
@@ -442,16 +478,23 @@ void MAIN {
 
         DPRINT << TERM_COMPUTE << "[Compute] finished second local sort" << TERM_RESET << ENDL();
         cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_reserve_back(index_tensor_transposed_cb_index, Wt_per_core);
 
         cb_pop_front(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_pop_front(index_tensor_transposed_cb_index, Wt_per_core);
 
         cb_push_back(input_tensor_transposed_cb_index, Wt_per_core);
+        cb_push_back(index_tensor_transposed_cb_index, Wt_per_core);
 
         // TODO: Same with index_tensor_transposed_cb_index (we did not send it for now)
 
         // Write everything into value tensor
         // Values tensor
         transpose_and_pack(input_tensor_transposed_cb_index, value_tensor_cb_index, Wt_per_core);
+
+        // Index tensor
+        DPRINT << TERM_COMPUTE << "[Compute] transpose and pack index" << TERM_RESET << ENDL();
+        transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
 
     }  // Ht loop
     DPRINT << TERM_COMPUTE << "[Compute] completed" << TERM_RESET << ENDL();

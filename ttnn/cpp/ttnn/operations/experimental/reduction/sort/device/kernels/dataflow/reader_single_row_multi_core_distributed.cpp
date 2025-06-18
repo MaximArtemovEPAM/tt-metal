@@ -26,19 +26,34 @@ void kernel_main() {
     const uint32_t input_tensor_buffer_addr = get_arg_val<uint32_t>(0);
     const uint32_t index_tensor_buffer_addr = get_arg_val<uint32_t>(1);
     const uint32_t core_loop_count = get_arg_val<uint32_t>(2);
+    const uint32_t this_core_x = get_arg_val<uint32_t>(3);
+    const uint32_t this_core_y = get_arg_val<uint32_t>(4);
+    const uint32_t other_core_x = get_arg_val<uint32_t>(5);
+    const uint32_t other_core_y = get_arg_val<uint32_t>(6);
 
     // Compile time args
     constexpr uint32_t input_tensor_cb_index = get_compile_time_arg_val(0);
     constexpr uint32_t index_tensor_output_cb_index = get_compile_time_arg_val(1);
-    constexpr bool input_tensor_is_dram = get_compile_time_arg_val(2) == 1;
-    constexpr bool index_tensor_is_dram = get_compile_time_arg_val(3) == 1;
-    constexpr uint32_t Wt = get_compile_time_arg_val(4);
-    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(5);
-    constexpr uint32_t Ht = get_compile_time_arg_val(6);
-    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(7);
-    constexpr uint32_t num_cores_y = get_compile_time_arg_val(8);
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(9);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(10);
+    constexpr uint32_t index_tensor_transposed_cb_index = get_compile_time_arg_val(2);  // TO-FIX
+    constexpr uint32_t index_tensor_other_cb_index = get_compile_time_arg_val(3);       // TO-FIX
+    constexpr uint32_t sync_with_reader_cb_index = get_compile_time_arg_val(4);         // TO-FIX
+
+    constexpr bool input_tensor_is_dram = get_compile_time_arg_val(5) == 1;
+    constexpr bool index_tensor_is_dram = get_compile_time_arg_val(6) == 1;
+    constexpr uint32_t Wt = get_compile_time_arg_val(7);
+    constexpr uint32_t Wt_per_core = get_compile_time_arg_val(8);
+    constexpr uint32_t Ht = get_compile_time_arg_val(9);
+    constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(10);
+    constexpr uint32_t num_cores_y = get_compile_time_arg_val(11);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(12);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(13);
+    const uint32_t sem_index_addr = get_semaphore(get_compile_time_arg_val(14));
+
+    const uint32_t this_core_id =
+        compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
+
+    const uint32_t other_core_id =
+        compute_core_id(other_core_x, other_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
 
     // Input tensor config
     constexpr uint32_t one_tile = 1;
@@ -82,6 +97,50 @@ void kernel_main() {
             noc_async_read_barrier();
             cb_push_back(input_tensor_cb_index, one_tile);
         }  // Wt loop
+
+        uint64_t sem_index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, sem_index_addr);
+        uint64_t sem_index_noc_addr = get_noc_addr(this_core_x, this_core_y, sem_index_addr);
+
+        sem_ptr_t sem_self_index_other_ptr = reinterpret_cast<sem_ptr_t>(sem_index_addr);
+        const uint32_t index_tensor_other_tile_size_bytes = get_tile_size(index_tensor_other_cb_index);
+
+        // Wait for Compute for complete
+        // Use sync_with_writer_cb as barrier
+        DPRINT << TERM_READER << "[Writer] synchronizing with writer" << TERM_RESET << ENDL();
+        cb_wait_front(sync_with_reader_cb_index, one_tile);
+        cb_pop_front(sync_with_reader_cb_index, one_tile);
+
+        // Exchange Index tile with peer
+        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
+            cb_wait_front(index_tensor_transposed_cb_index, one_tile);
+            const uint32_t l1_read_ptr = get_read_ptr(index_tensor_transposed_cb_index);
+
+            cb_reserve_back(index_tensor_other_cb_index, one_tile);
+            uint32_t index_other_cb_write_addr = get_write_ptr(index_tensor_other_cb_index);
+            uint64_t index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, index_other_cb_write_addr);
+
+            DPRINT << TERM_READER << "[Writer] exchanging tile #" << Wt_per_core << " with " << other_core_id
+                   << " (self = " << this_core_id << ")"
+                   << ", sem_self = " << sem_index_noc_addr << " (" << sem_index_addr
+                   << "), sem_other_noc = " << sem_index_other_noc_addr << TERM_RESET << ENDL();
+            sort_noc_exchange_tiles(
+                this_core_id,
+                other_core_id,
+                sem_self_index_other_ptr,
+                sem_index_other_noc_addr,
+                l1_read_ptr,
+                index_other_noc_addr,
+                index_tensor_other_tile_size_bytes);
+
+            constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
+
+            DPRINT << TERM_READER
+                   << "[Writer] sending other tile back to compute, other_cb = " << index_tensor_other_cb_index
+                   << TERM_RESET << ENDL();
+            cb_push_back(index_tensor_other_cb_index, one_tile);
+
+            cb_pop_front(index_tensor_transposed_cb_index, one_tile);
+        }  // Wt
 
         // TODO: Move it back down and handle inter-core handshakes
         //       Right now, if we read input tiles before index then we have a deadlock
