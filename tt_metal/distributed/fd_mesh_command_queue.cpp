@@ -436,7 +436,7 @@ void FDMeshCommandQueue::write_shard_to_device(
     const std::optional<BufferRegion>& region,
     tt::stl::Span<const SubDeviceId> sub_device_ids) {
     in_use_ = true;
-    TT_FATAL(!trace_id_.has_value(), "Writes are not supported during trace capture.");
+    TT_FATAL(!trace_id_.has_value(), "Writes are not supported during trace capture. trace id: {}", trace_id_.value());
 
     const auto shard_view = buffer.get_device_buffer(device_coord);
     const auto region_value = region.value_or(BufferRegion(0, shard_view->size()));
