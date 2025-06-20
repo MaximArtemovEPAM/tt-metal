@@ -9,7 +9,7 @@ import PIL
 import torch
 from llama_models.llama3.api.chat_format import create_vision_mask
 from tqdm import tqdm
-from vllm.inputs import INPUT_REGISTRY, DecoderOnlyInputs, EncoderDecoderInputs, InputContext, TokenInputs, token_inputs
+from vllm.inputs import EncoderDecoderInputs, InputContext, TokenInputs, token_inputs
 from vllm.model_executor.models.interfaces import SupportsMultiModal
 
 import ttnn
@@ -179,20 +179,8 @@ def input_processor_for_mllama(
     )
 
 
-def input_processor_for_llama_text(ctx: InputContext, inputs: Union[DecoderOnlyInputs, EncoderDecoderInputs]):
-    hf_model_name = ctx.model_config.hf_config._name_or_path
-    if ("3.1-8B" in hf_model_name or "3.2-11B" in hf_model_name) and os.environ.get("MESH_DEVICE") == "N150":
-        prompt_len = len(inputs.get("prompt_token_ids"))
-        MAX_PROMPT_LEN = 65536
-        if prompt_len > MAX_PROMPT_LEN:
-            raise ValueError(
-                f"TT-LLama8B and TT-Llama11B do not support prompts longer than {MAX_PROMPT_LEN} tokens on N150 (received prompt with {prompt_len} tokens)"
-            )
-    return inputs
-
-
 # @MULTIMODAL_REGISTRY.register_image_input_mapper()  # TODO: Add once model can accept inputs from multi_modal_input_mapper (raw pixel values)
-@INPUT_REGISTRY.register_input_processor(input_processor_for_mllama)
+# @INPUT_REGISTRY.register_input_processor(input_processor_for_mllama)
 class MllamaForConditionalGeneration(Generator, SupportsMultiModal):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -274,7 +262,6 @@ class MllamaForConditionalGeneration(Generator, SupportsMultiModal):
         return allocate_vllm_kv_cache(*args, **kwargs, dp_model=self.model, tt_cache_path=self.cache_path)
 
 
-@INPUT_REGISTRY.register_input_processor(input_processor_for_llama_text)
 class LlamaForCausalLM(Generator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -298,6 +285,20 @@ class LlamaForCausalLM(Generator):
         return self.model_args[0].model_cache_path
 
     def prefill_forward(self, *args, **kwargs):
+        # def input_processor_for_llama_text(ctx: InputContext, inputs: Union[DecoderOnlyInputs, EncoderDecoderInputs]):
+        #     hf_model_name = ctx.model_config.hf_config._name_or_path
+        #     if ("3.1-8B" in hf_model_name or "3.2-11B" in hf_model_name) and os.environ.get("MESH_DEVICE") == "N150":
+        #         prompt_len = len(inputs.get("prompt_token_ids"))
+        #         MAX_PROMPT_LEN = 65536
+        #         if prompt_len > MAX_PROMPT_LEN:
+        #             raise ValueError(
+        #                 f"TT-LLama8B and TT-Llama11B do not support prompts longer than {MAX_PROMPT_LEN} tokens on N150 (received prompt with {prompt_len} tokens)"
+        #             )
+        #     return inputs
+        # breakpoint()
+        # TODO: check prompt len here and raise error if too long & say to set --max_model_len in vLLM to 64k for 8b/
+        # TODO: also update vLLM readme with max model len, or refer to tt-metal readme and say to set based on there
+
         return super().prefill_forward_text(*args, **kwargs)
 
     def decode_forward(self, *args, **kwargs):
