@@ -98,50 +98,54 @@ void kernel_main() {
             cb_push_back(input_tensor_cb_index, one_tile);
         }  // Wt loop
 
-        uint64_t sem_index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, sem_index_addr);
-        uint64_t sem_index_noc_addr = get_noc_addr(this_core_x, this_core_y, sem_index_addr);
-
         sem_ptr_t sem_self_index_other_ptr = reinterpret_cast<sem_ptr_t>(sem_index_addr);
         const uint32_t index_tensor_other_tile_size_bytes = get_tile_size(index_tensor_other_cb_index);
 
-        // Wait for Compute for complete
-        // Use sync_with_writer_cb as barrier
-        DPRINT << TERM_READER << "[Writer] synchronizing with writer" << TERM_RESET << ENDL();
-        cb_wait_front(sync_with_reader_cb_index, one_tile);
-        cb_pop_front(sync_with_reader_cb_index, one_tile);
+        uint32_t stages = ilog2(Wt / Wt_per_core);
+        DPRINT << TERM_READER << "[Reader] stages = " << stages << ENDL();
+        for (uint32_t stage = 2; stage <= stages; stage++) {
+            // Get other core coords
+            uint64_t sem_index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, sem_index_addr);
+            uint64_t sem_index_noc_addr = get_noc_addr(this_core_x, this_core_y, sem_index_addr);  // only debug
 
-        // Exchange Index tile with peer
-        for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
-            cb_wait_front(index_tensor_transposed_cb_index, one_tile);
-            const uint32_t l1_read_ptr = get_read_ptr(index_tensor_transposed_cb_index);
+            // Wait for Compute for complete
+            // Use sync_with_writer_cb as barrier
+            DPRINT << TERM_READER << "[Reader]] synchronizing with writer" << TERM_RESET << ENDL();
+            cb_wait_front(sync_with_reader_cb_index, one_tile);
+            cb_pop_front(sync_with_reader_cb_index, one_tile);
 
-            cb_reserve_back(index_tensor_other_cb_index, one_tile);
-            uint32_t index_other_cb_write_addr = get_write_ptr(index_tensor_other_cb_index);
-            uint64_t index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, index_other_cb_write_addr);
+            // Exchange Index tile with peer
+            for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
+                cb_wait_front(index_tensor_transposed_cb_index, one_tile);
+                const uint32_t l1_read_ptr = get_read_ptr(index_tensor_transposed_cb_index);
 
-            DPRINT << TERM_READER << "[Writer] exchanging tile #" << Wt_per_core << " with " << other_core_id
-                   << " (self = " << this_core_id << ")"
-                   << ", sem_self = " << sem_index_noc_addr << " (" << sem_index_addr
-                   << "), sem_other_noc = " << sem_index_other_noc_addr << TERM_RESET << ENDL();
-            sort_noc_exchange_tiles(
-                this_core_id,
-                other_core_id,
-                sem_self_index_other_ptr,
-                sem_index_other_noc_addr,
-                l1_read_ptr,
-                index_other_noc_addr,
-                index_tensor_other_tile_size_bytes);
+                cb_reserve_back(index_tensor_other_cb_index, one_tile);
+                uint32_t index_other_cb_write_addr = get_write_ptr(index_tensor_other_cb_index);
+                uint64_t index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, index_other_cb_write_addr);
 
-            constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
+                DPRINT << TERM_READER << "[Reader] exchanging tile #" << (w - w_start) << "/" << Wt_per_core << " with "
+                       << other_core_id << " (self = " << this_core_id << ")"
+                       << ", sem_self = " << sem_index_noc_addr << " (" << sem_index_addr
+                       << "), sem_other_noc = " << sem_index_other_noc_addr << TERM_RESET << ENDL();
+                sort_noc_exchange_tiles(
+                    this_core_id,
+                    other_core_id,
+                    sem_self_index_other_ptr,
+                    sem_index_other_noc_addr,
+                    l1_read_ptr,
+                    index_other_noc_addr,
+                    index_tensor_other_tile_size_bytes);
 
-            DPRINT << TERM_READER
-                   << "[Writer] sending other tile back to compute, other_cb = " << index_tensor_other_cb_index
-                   << TERM_RESET << ENDL();
-            cb_push_back(index_tensor_other_cb_index, one_tile);
+                constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
 
-            cb_pop_front(index_tensor_transposed_cb_index, one_tile);
-        }  // Wt
+                DPRINT << TERM_READER
+                       << "[Reader] sending other tile back to compute, other_cb = " << index_tensor_other_cb_index
+                       << TERM_RESET << ENDL();
+                cb_push_back(index_tensor_other_cb_index, one_tile);
 
+                cb_pop_front(index_tensor_transposed_cb_index, one_tile);
+            }  // Wt
+        }
         // TODO: Move it back down and handle inter-core handshakes
         //       Right now, if we read input tiles before index then we have a deadlock
         //       Indeed, index_tensor_output_cb_index gets filled, which blocks compute and writer
@@ -159,5 +163,5 @@ void kernel_main() {
 
     }  // core_loop_count loop
 
-    DPRINT << TERM_READER << "[Sort Reader] completing" << TERM_RESET << ENDL();
+    DPRINT << TERM_READER << "[Reader] completing" << TERM_RESET << ENDL();
 }

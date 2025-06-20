@@ -779,6 +779,14 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
             .set_page_size(sync_with_reader_cb_index, sync_tile_size);
     auto cb_sync_with_reader = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_with_reader_cb_config);
 
+    // Used to sync packer and unpacker threads
+    constexpr uint32_t sync_packer_with_unpacker_cb_index = tt::CBIndex::c_10;
+    const tt::tt_metal::CircularBufferConfig sync_packer_with_unpacker_cb_config =
+        tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_packer_with_unpacker_cb_index, sync_cb_data_format}})
+            .set_page_size(sync_packer_with_unpacker_cb_index, sync_tile_size);
+    auto cb_sync_packer_with_unpacker =
+        tt::tt_metal::CreateCircularBuffer(program, core_range, sync_packer_with_unpacker_cb_config);
+
     // Kernels
     const std::vector<uint32_t> reader_compile_time_args = {
         input_tensor_cb_index,
@@ -846,6 +854,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         index_tensor_other_cb_index,
         sync_with_writer_cb_index,
         sync_with_reader_cb_index,
+        sync_packer_with_unpacker_cb_index,
         Wt,
         Wt_per_core,
         static_cast<uint32_t>(attributes.descending),

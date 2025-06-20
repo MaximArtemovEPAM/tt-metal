@@ -90,3 +90,7 @@ void sort_noc_exchange_tiles(
         noc_semaphore_inc(sem_input_other_noc_addr, 1);
     }
 }
+
+uint32_t ilog2(uint32_t n) {
+    return 32 - __builtin_clz(n);  // note: clz will be more than 1 instruction on rv32iy
+}
