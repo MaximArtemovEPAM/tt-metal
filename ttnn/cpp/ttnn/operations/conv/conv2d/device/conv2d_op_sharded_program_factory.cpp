@@ -145,7 +145,12 @@ std::tuple<tt::tt_metal::CBHandle, tt::tt_metal::CBHandle, tt::tt_metal::CBHandl
             if (split_reader) {
                 cb_indices.act_cb_second_reader = cb_indices.get_next_cb_index();
                 tt::tt_metal::create_cb(
-                    cb_indices.act_cb_second_reader, program, core, act_tile_size, num_cb0_second_reader_tiles, act_df);
+                    cb_indices.act_cb_second_reader,
+                    program,
+                    core,
+                    act_tile_size,
+                    num_cb0_tiles + cb0_reuse_tiles,
+                    act_df);
                 log_debug(
                     LogOp,
                     "Act CB Second Reader: {}, npages: {}, pagesize: {}",
@@ -683,6 +688,8 @@ tt::tt_metal::operation::ProgramWithCallbacks multi_core_optimized_conv_sharded_
     uint32_t act_block_num_tiles_split_last =
         act_block_h_nsubblocks_split_last * out_subblock_h_ntiles * act_block_w_ntiles;
 
+    uint32_t act_block_h_split = act_block_h_nsubblocks_split * out_subblock_h_ntiles;
+
     log_debug(LogOp, "act_block_h_nsubblocks_split: {}", act_block_h_nsubblocks_split);
     log_debug(LogOp, "act_block_h_nsubblocks_split_last: {}", act_block_h_nsubblocks_split_last);
     log_debug(LogOp, "act_block_h_datums_split: {}", act_block_h_datums_split);
@@ -1091,8 +1098,8 @@ tt::tt_metal::operation::ProgramWithCallbacks multi_core_optimized_conv_sharded_
                                              a.element_size();
     const uint32_t act_block_w_extra_align_scalars = act_block_w_extra_align_bytes / a.element_size();
 
-    uint32_t reuse_loops = act_block_h_ntiles / act_tiles_per_image_width;
-    if (act_block_h_ntiles % act_tiles_per_image_width != 0) {
+    uint32_t reuse_loops = act_block_h_split / act_tiles_per_image_width;
+    if (act_block_h_split % act_tiles_per_image_width != 0) {
         reuse_loops++;
     }
 
@@ -1134,9 +1141,6 @@ tt::tt_metal::operation::ProgramWithCallbacks multi_core_optimized_conv_sharded_
             num_act_cb_second_reader_tiles = act_block_num_tiles_split_last;
             num_act_cb_tiles = num_act_cb_tiles * 2;                              // double buffered
             num_act_cb_second_reader_tiles = num_act_cb_second_reader_tiles * 2;  // double buffered
-        } else {
-            num_act_cb_tiles = act_block_num_tiles_split;
-            num_act_cb_second_reader_tiles = act_block_num_tiles_split_last;
         }
     } else {
         if (enable_act_double_buffer) {
@@ -1211,12 +1215,12 @@ tt::tt_metal::operation::ProgramWithCallbacks multi_core_optimized_conv_sharded_
             all_cores,
             num_act_cb_tiles,  // row major act cb
             reuse_buffer_length_tiles,
-            num_act_cb_second_reader_tiles,  // row major act cb second reader
-            num_weight_cb_tiles,             // tiled weight cb
-            num_cb0_tilized_tiles,           // tiled act cb
-            output_block_num_tiles,          // math output cb
-            weight_block_w_ntiles,           // reblock cb
-            writer_output_block_num_tiles,   // writer output cb, double bufferred
+            num_act_cb_tiles,               // row major act cb second reader
+            num_weight_cb_tiles,            // tiled weight cb
+            num_cb0_tilized_tiles,          // tiled act cb
+            output_block_num_tiles,         // math output cb
+            weight_block_w_ntiles,          // reblock cb
+            writer_output_block_num_tiles,  // writer output cb, double bufferred
             untilize_out,
             act_df,
             weight_df,
@@ -1455,7 +1459,12 @@ tt::tt_metal::operation::ProgramWithCallbacks multi_core_optimized_conv_sharded_
             (uint32_t)needs_act_block_zero_out,
             (uint32_t)dilation_h,
             (uint32_t)dilation_w,
-            (uint32_t)stride_w};
+            (uint32_t)stride_w,
+            // conv 3.0
+            (uint32_t)reuse_loops,
+            (uint32_t)num_act_cb_tiles,
+            (uint32_t)filter_h,
+        };
         writer_compile_time_args.insert(
             writer_compile_time_args.end(), split_reader_args.begin(), split_reader_args.end());
     } else {

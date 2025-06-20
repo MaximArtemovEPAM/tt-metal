@@ -74,20 +74,21 @@ void kernel_main() {
     // set_state uses just x/y from the get_noc_addr, addr is ignored
     noc_async_read_one_packet_set_state(get_noc_addr(act_l1_read_addr), coalesced_read_bytes);
 
+    uint32_t cb_start_addr;
+
     constexpr uint32_t stride_w_bytes = dilation_w * conv_act_c_read_bytes;
     for (uint32_t bh = 0; bh < act_num_blocks_h; bh++) {
-        uint32_t cb_start_addr, l1_write_addr_act;
+        uint32_t l1_write_addr_act;
         for (uint32_t loop = 0; loop < reuse_loops; loop++) {
             cb_reserve_back(cb_id_act, act_cb_tiles);
-            if (loop == 0 && bh == 0) {
-                cb_start_addr = get_write_ptr(cb_id_act);
+            if (loop == 0) {
+                if (bh == 0) {
+                    cb_start_addr = get_write_ptr(cb_id_act);
+                }
                 l1_write_addr_act = cb_start_addr;
             } else {
-                l1_write_addr_act = cb_start_addr + (bh * reuse_loops + loop) * weight_size_w * conv_act_c_read_bytes;
-                update_local_cb_wr_ptr(cb_id_act, l1_write_addr_act);
+                l1_write_addr_act = cb_start_addr + loop * weight_size_w * conv_act_c_read_bytes;
             }
-
-            uint32_t l1_write_addr_act = get_write_ptr(cb_id_act);
 
             read_sticks<
                 dilation_w,
@@ -103,7 +104,7 @@ void kernel_main() {
                 act_l1_read_addr,
                 l1_write_addr_act,
                 reader_idx,
-                loop == 0 && bh == 0,
+                loop == 0,
                 cb_start_addr,
                 loop == 0);
 
@@ -113,7 +114,7 @@ void kernel_main() {
         }
 #ifdef SPLIT_READER
         // Increment reader index for the next number of segments (number of segments for other reader)
-        start_reader_idx += (static_cast<uint32_t>(packed_reader_indices_ptr[reader_idx] & 0xffff) + 1);
+        reader_idx += (static_cast<uint32_t>(packed_reader_indices_ptr[reader_idx] & 0xffff) + 1);
 #endif
     }
     noc_async_write_barrier();

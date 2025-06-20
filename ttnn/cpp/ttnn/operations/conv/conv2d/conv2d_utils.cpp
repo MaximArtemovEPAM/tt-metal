@@ -1149,6 +1149,9 @@ conv_op_l1_usage conv2d::calculate_L1_usage(
             reuse_buffer_length_tiles++;
         }
 
+        // TODO(sjovic): generalize if split act h doesn't have enough rows for image width
+        uint32_t total_act_num_tiles = (act_block_cb_ntiles + reuse_buffer_length_tiles);
+
         uint32_t act_block_cb_size = act_block_cb_ntiles * input_tile_size;
         uint32_t tilzed_act_cb_size =
             (act_block_h_ntiles / act_tiles_per_image_width) * act_block_cb_ntiles * output_tile_size;
@@ -1168,11 +1171,9 @@ conv_op_l1_usage conv2d::calculate_L1_usage(
         uint32_t partial_tile_size = tt::tile_size(datatype_to_dataformat_converter(interm_dtype));
 
         uint32_t act_block_split_last_ntiles = 0;
-        uint32_t act_block_split_ntiles = act_block_cb_ntiles;
+        uint32_t act_block_split_ntiles = total_act_num_tiles;
         if (conv_config.enable_split_reader) {
-            uint32_t act_block_h_nsubblocks = block_config.act_block_h_ntiles / block_config.out_subblock_h_ntiles;
-            uint32_t act_block_split_last_ntiles = act_block_cb_ntiles / 2;
-            uint32_t act_block_split_ntiles = act_block_cb_ntiles - act_block_split_last_ntiles;
+            act_block_split_ntiles *= 2;
         }
 
         if (conv_config.enable_act_double_buffer) {
@@ -1181,7 +1182,7 @@ conv_op_l1_usage conv2d::calculate_L1_usage(
         }
 
         // ACT CB
-        uint32_t act_cb_size = (act_block_split_ntiles + reuse_buffer_length_tiles) * input_tile_size;
+        uint32_t act_cb_size = act_block_split_ntiles * input_tile_size;
         log_debug(tt::LogOp, "Act CB Size: {}", act_cb_size);
 
         // WEIGHTS CB

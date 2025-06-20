@@ -46,8 +46,8 @@ inline uint32_t tilize_in(
     for (uint32_t in_subblock = 0; in_subblock < in_num_subblocks; ++in_subblock) {
         for (uint32_t h = 0; h < in_subblock_h; ++h) {
             // TODO(sjovic): move out these divisions somehow
-            if (counter + rows_read >= image_width_in_tiles && (counter + rows_read) % image_width_in_tiles == 0) {
-                uint32_t multiplier = (counter + rows_read) / image_width_in_tiles;
+            if (counter >= image_width_in_tiles && counter % image_width_in_tiles == 0) {
+                uint32_t multiplier = counter / image_width_in_tiles;
                 uint32_t new_read_ptr = 0;
                 UNPACK((new_read_ptr = start_cb_addr + multiplier * diff));
                 UNPACK((update_local_cb_rd_ptr(in_cb_id, new_read_ptr)));
@@ -63,7 +63,7 @@ inline uint32_t tilize_in(
     }
     tilize_uninit(in_cb_id, out_cb_id);
 
-    return rows_read + counter;
+    return counter;
 }  // tilize_in()
 
 template <uint32_t out_subblock_w, uint32_t out_block_w>
@@ -163,11 +163,15 @@ void MAIN {
 #ifdef SFPU_OP_INIT_ACTIVATION
     SFPU_OP_INIT_ACTIVATION
 #endif
-    uint32_t start_cb_addr = get_local_cb_interface(in0_cb_id).fifo_rd_ptr;
+    uint32_t start_cb_addr_1 = get_local_cb_interface(in0_cb_id).fifo_rd_ptr;
+    uint32_t end_cb_addr_1 = start_cb_addr_1 + cb_size;
+    uint32_t rows_read_1 = 0;
 
-    uint32_t end_cb_addr = start_cb_addr + cb_size;
-    uint32_t rows_read = 0;
-
+#ifdef SPLIT_READER
+    uint32_t start_cb_addr_2 = get_local_cb_interface(in0_cb_second_reader_id).fifo_rd_ptr;
+    uint32_t end_cb_addr_2 = start_cb_addr_2 + cb_size;
+    uint32_t rows_read_2 = 0;
+#endif
     UNPACK(uint32_t partials_cb_read_ptr = get_local_cb_interface(matmul_partials_cb).fifo_rd_ptr;)
     PACK(uint32_t partials_cb_write_ptr = get_local_cb_interface(matmul_partials_cb).fifo_wr_ptr;)
     // in1 num blocks w is the outer loop. Output blocks are computed in col major order.
@@ -219,25 +223,31 @@ void MAIN {
 #endif
 
                     reconfig_data_format_srca(in1_cb_id, in0_cb_id);
-
-                    rows_read = tilize_in(
+                    UNPACK((update_local_cb_rd_ptr(in0_cb_id, start_cb_addr_1)));
+                    rows_read_1 = tilize_in(
                         in0_cb_id,
                         in0_subblock_h,
                         in0_block_w,
                         in0_num_subblocks_read,
                         tilized_in0_cb_id,
-                        rows_read,
+                        rows_read_1,
                         diff,
-                        start_cb_addr,
-                        end_cb_addr,
+                        start_cb_addr_1,
+                        end_cb_addr_1,
                         image_width_in_tiles);
 #ifdef SPLIT_READER
-                    tilize_in(
+                    UNPACK((update_local_cb_rd_ptr(in0_cb_second_reader_id, start_cb_addr_2)));
+                    rows_read_2 = tilize_in(
                         in0_cb_second_reader_id,
                         in0_subblock_h,
                         in0_block_w,
                         in0_num_subblocks_read_last,
-                        tilized_in0_cb_id);
+                        tilized_in0_cb_id,
+                        rows_read_2,
+                        diff,
+                        start_cb_addr_2,
+                        end_cb_addr_2,
+                        image_width_in_tiles);
 #endif
 
                     mm_block_init_short_with_dt(
