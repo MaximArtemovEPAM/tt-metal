@@ -237,7 +237,7 @@ bool cb_config_successful(IDevice* device, Program& program, const DummyProgramM
     return pass;
 }
 
-bool test_dummy_EnqueueProgram_with_runtime_args(
+void test_dummy_EnqueueProgram_with_runtime_args(
     IDevice* device,
     const CoreCoord& eth_core_coord,
     DataMovementProcessor erisc_processor = DataMovementProcessor::RISCV_0) {
@@ -1256,8 +1256,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, ActiveEthEnqueueDummyProgram) {
                     "Test active ethernet enqueue dummy program with runtime args for eth_core: {} DM{}",
                     eth_core.str(),
                     erisc_idx);
-                ASSERT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-                    device, eth_core, static_cast<DataMovementProcessor>(erisc_idx)));
+                local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
+                    device, eth_core, static_cast<DataMovementProcessor>(erisc_idx));
             }
         }
     }
@@ -1334,8 +1334,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestRuntimeArgsCorrectlySentS
 
     DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
     for (IDevice* device : devices_) {
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-            device, device->command_queue(), dummy_program_config, 9, 12, 15, 1));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
+            device, device->command_queue(), dummy_program_config, 9, 12, 15, 1);
     }
 }
 
@@ -1549,8 +1549,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestAllRuntimeArgsCorrectlySe
         CoreRangeSet cr_set(cr);
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-            device, device->command_queue(), dummy_program_config, 13, 17, 19, 1));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
+            device, device->command_queue(), dummy_program_config, 13, 17, 19, 1);
     }
 }
 
@@ -1562,8 +1562,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestAllRuntimeArgsCorrectlySe
         CoreRangeSet cr_set(cr);
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-            device, device->command_queue(), dummy_program_config, 255, 255, 255, 1));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
+            device, device->command_queue(), dummy_program_config, 255, 255, 255, 1);
     }
 }
 
@@ -1576,8 +1576,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestSendRuntimeArgsMultiCoreR
         CoreRangeSet cr_set(std::vector{cr0, cr1});
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
-            device, device->command_queue(), dummy_program_config, 12, 9, 2));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
+            device, device->command_queue(), dummy_program_config, 12, 9, 2);
     }
 }
 
@@ -1591,8 +1591,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestSendRuntimeArgsMultiNonOv
         CoreRangeSet cr_set(std::vector{cr0, cr1});
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
-            device, device->command_queue(), dummy_program_config, 9, 12, 2));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
+            device, device->command_queue(), dummy_program_config, 9, 12, 2);
     }
 }
 
@@ -1605,8 +1605,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestUpdateRuntimeArgsMultiCor
         CoreRangeSet cr_set(std::vector{cr0, cr1});
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
-            device, device->command_queue(), dummy_program_config, 9, 31, 10));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args_multi_crs(
+            device, device->command_queue(), dummy_program_config, 9, 31, 10);
     }
 }
 
@@ -2023,8 +2023,8 @@ TEST_F(CommandQueueSingleCardProgramFixture, DISABLED_TensixTestFillDispatchCore
 
         DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
 
-        EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-            device, device->command_queue(), dummy_program_config, 256, 256, 256, NUM_ITER));
+        local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
+            device, device->command_queue(), dummy_program_config, 256, 256, 256, NUM_ITER);
     }
 }
 
