@@ -268,6 +268,8 @@ class LlamaForCausalLM(Generator):
 
     @classmethod
     def initialize_vllm_model(cls, hf_config, mesh_device, max_batch_size, n_layers=None, tt_data_parallel=1):
+        # TODO: say to set --max_model_len in vLLM to 64k for 8b/
+        # TODO: also update vLLM readme with max model len, or refer to tt-metal readme and say to set based on there
         tt_model, model_args = initialize_vllm_text_transformer(
             hf_config,
             tt_data_parallel,
@@ -296,8 +298,6 @@ class LlamaForCausalLM(Generator):
         #             )
         #     return inputs
         # breakpoint()
-        # TODO: check prompt len here and raise error if too long & say to set --max_model_len in vLLM to 64k for 8b/
-        # TODO: also update vLLM readme with max model len, or refer to tt-metal readme and say to set based on there
 
         return super().prefill_forward_text(*args, **kwargs)
 
