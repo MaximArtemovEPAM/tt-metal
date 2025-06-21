@@ -43,6 +43,148 @@ CoreRangeSet cores_to_corerangeset(const std::vector<CoreCoord>& cores) {
     }
     return CoreRangeSet(core_ranges);
 }
+std::vector<CoreCoord> compute_top_row_ethernet_cores(
+    IDevice* device, std::optional<IDevice*> forward_device, std::optional<IDevice*> backward_device) {
+    std::vector<CoreCoord> reordered_ethernet_cores;
+    if (forward_device.has_value()) {
+        for (auto core : device->get_ethernet_sockets(forward_device.value()->id())) {
+            auto core_virtual = device->virtual_core_from_logical_core(core, CoreType::ETH);
+            reordered_ethernet_cores.push_back(core_virtual);
+        }
+        std::sort(reordered_ethernet_cores.begin(), reordered_ethernet_cores.end(), [](auto& a, auto& b) {
+            return a.x < b.x;
+        });
+    } else if (backward_device.has_value()) {
+        for (auto core : device->get_ethernet_sockets(backward_device.value()->id())) {
+            auto core_virtual = device->virtual_core_from_logical_core(core, CoreType::ETH);
+            reordered_ethernet_cores.push_back(core_virtual);
+        }
+        std::sort(reordered_ethernet_cores.begin(), reordered_ethernet_cores.end(), [](auto& a, auto& b) {
+            return a.x < b.x;
+        });
+    }
+    for (auto& eth_core : reordered_ethernet_cores) {
+        eth_core.y = 16;
+    }
+    return reordered_ethernet_cores;
+}
+
+bool core_vector_contains_core(std::vector<CoreCoord> core_vector, CoreCoord core) {
+    auto it = std::find(core_vector.begin(), core_vector.end(), core);
+    return it != core_vector.end();
+}
+
+CoreCoord wh_glx_physical_worker_core_from_logical_core(CoreCoord logical_core) {
+    auto physical_x = logical_core.x <= 3 ? logical_core.x + 1 : logical_core.x + 2;
+    auto physical_y = logical_core.y <= 4 ? logical_core.y + 1 : logical_core.y + 2;
+    return CoreCoord(physical_x, physical_y);
+}
+CoreCoord wh_glx_logical_worker_core_from_physical_core(CoreCoord physical_core) {
+    auto logical_x = physical_core.x <= 4 ? physical_core.x - 1 : physical_core.x - 2;
+    auto logical_y = physical_core.y <= 5 ? physical_core.y - 1 : physical_core.y - 2;
+    return CoreCoord(logical_x, logical_y);
+}
+
+std::tuple<CoreRangeSet, std::vector<CoreCoord>> get_optimal_worker_core_placement(
+    std::vector<CoreCoord> ethernet_cores_virtual, const CoreRangeSet& available_corerangeset, uint32_t num_links) {
+    std::vector<CoreCoord> sender_worker_cores;
+
+    // Get all available ranges from the CoreRangeSet
+    auto available_ranges = available_corerangeset.ranges();
+
+    // Convert available ranges to cores
+    auto available_cores = corerange_to_cores(available_corerangeset, std::nullopt, true);
+
+    for (uint32_t link = 0; link < num_links; link++) {
+        auto core_virtual = ethernet_cores_virtual[link];
+        CoreCoord eth_core_physical;
+        eth_core_physical.x = core_virtual.x >= 22 ? (core_virtual.x - 16) : (core_virtual.x - 17);
+        eth_core_physical.y = (core_virtual.y - 16) * 6;
+
+        // Shift down the worker core below the ethernet core
+        CoreCoord worker_core_physical = CoreCoord(eth_core_physical.x, eth_core_physical.y + 1);
+        CoreCoord worker_core_logical = wh_glx_logical_worker_core_from_physical_core(worker_core_physical);
+
+        bool found_valid_core = false;
+
+        // Iterate through ranges
+        for (size_t i = 0; i < available_ranges.size(); i++) {
+            auto current_range_start = available_ranges[i].start_coord;
+            auto current_range_end = available_ranges[i].end_coord;
+
+            if (i < available_ranges.size() - 1) {
+                auto next_range_start = available_ranges[i + 1].start_coord;
+                // check if its in the middle of the ranges and check which range to prefer
+                if (worker_core_logical.x > current_range_end.x && worker_core_logical.x < next_range_start.x) {
+                    if (next_range_start.x - worker_core_logical.x < worker_core_logical.x - current_range_end.x) {
+                        worker_core_logical.x = next_range_start.x;
+                        continue;  // Skips as it is closer to the next range
+                    } else {
+                        worker_core_logical.x = current_range_end.x;
+                    }
+                    // skip if the core is in the next range or beyond
+                } else if (worker_core_logical.x >= next_range_start.x) {
+                    continue;
+                }
+            }
+            // Either core is front of the range, or inside the range or at the back in case of last range
+            // bring the core in the bounds of the range
+            if (worker_core_logical.x < current_range_start.x) {
+                worker_core_logical.x = current_range_start.x;
+            } else if (worker_core_logical.x > current_range_end.x) {
+                worker_core_logical.x = current_range_end.x;
+            }
+
+            // Try to find a valid core within this range
+            for (uint32_t core_y = worker_core_logical.y; core_y <= current_range_end.y; core_y++) {
+                worker_core_logical.y = core_y;
+                if (!core_vector_contains_core(sender_worker_cores, worker_core_logical) &&
+                    core_vector_contains_core(available_cores, worker_core_logical)) {
+                    found_valid_core = true;
+                    break;
+                }
+            }
+
+            if (found_valid_core) {
+                break;
+            }
+        }
+
+        if (found_valid_core) {
+            sender_worker_cores.push_back(worker_core_logical);
+        } else {
+            TT_ASSERT("No valid worker core found for a link");
+        }
+    }
+
+    std::set<CoreRange> sender_worker_cores_set;
+    for (const auto& core : sender_worker_cores) {
+        sender_worker_cores_set.insert(CoreRange(core));
+    }
+    CoreRangeSet sender_worker_corerangeset = CoreRangeSet(sender_worker_cores_set);
+
+    return {sender_worker_corerangeset, sender_worker_cores};
+}
+
+std::tuple<CoreRangeSet, std::vector<CoreCoord>> get_custom_worker_core_placement(uint32_t num_links) {
+    std::vector<CoreCoord> sender_worker_cores;
+    if (num_links == 3) {
+        sender_worker_cores.emplace_back(CoreCoord(2, 3));
+        sender_worker_cores.emplace_back(CoreCoord(3, 3));
+        sender_worker_cores.emplace_back(CoreCoord(6, 3));
+    } else if (num_links == 4) {
+        sender_worker_cores.emplace_back(CoreCoord(1, 3));
+        sender_worker_cores.emplace_back(CoreCoord(2, 3));
+        sender_worker_cores.emplace_back(CoreCoord(3, 3));
+        sender_worker_cores.emplace_back(CoreCoord(6, 8));
+    }
+    std::set<CoreRange> sender_worker_cores_set;
+    for (const auto& core : sender_worker_cores) {
+        sender_worker_cores_set.insert(CoreRange(core));
+    }
+    CoreRangeSet sender_worker_corerangeset = CoreRangeSet(sender_worker_cores_set);
+    return {sender_worker_corerangeset, sender_worker_cores};
+}
 
 tt::tt_metal::operation::ProgramWithCallbacks all_reduce_async_minimal_multi_core_with_workers(
     const Tensor& input_tensor,
@@ -65,6 +207,7 @@ tt::tt_metal::operation::ProgramWithCallbacks all_reduce_async_minimal_multi_cor
 
     tt::tt_metal::Program program{};
     auto mesh_device = input_tensor.mesh_device();
+    auto single_device = mesh_device->get_devices().at(0);
     bool is_first_chip = ring_index == 0;
     bool is_last_chip = ring_index == ring_size - 1;
     log_trace(
@@ -93,10 +236,34 @@ tt::tt_metal::operation::ProgramWithCallbacks all_reduce_async_minimal_multi_cor
     const auto output_tensor_shard_num_pages = output_tensor_shard_shape[0] * output_tensor_shard_shape[1] / TILE_HW;
     const auto num_output_cores = output_tensor_cores.num_cores();
 
+    // Get worker cores, assuming 1 worker per link
+    uint32_t num_workers_per_link = 1;
+    bool optimal_placement = true;
     auto sub_device_cores = mesh_device->worker_cores(
         tt::tt_metal::HalProgrammableCoreType::TENSIX, sub_device_id.value_or(mesh_device->get_sub_device_ids().at(0)));
 
-    std::vector<CoreRange> output_cores;
+    // std::vector<CoreCoord> ethernet_cores_virtual =
+    //     compute_top_row_ethernet_cores(single_device, forward_device, backward_device);
+
+    CoreRangeSet sender_worker_core_range;
+    std::vector<CoreCoord> sender_worker_cores;
+    if (optimal_placement) {
+        // std::tie(sender_worker_core_range, sender_worker_cores) =
+        //     get_optimal_worker_core_placement(ethernet_cores_virtual, sub_device_cores, num_links);
+        std::tie(sender_worker_core_range, sender_worker_cores) = get_custom_worker_core_placement(num_links);
+    } else {
+        std::tie(sender_worker_core_range, sender_worker_cores) =
+            ar_choose_worker_cores(num_links, num_workers_per_link, sub_device_cores);
+    }
+
+    if (mesh_device->id() == 4) {
+        // log_info(tt::LogOp, "dev {} ethernet_cores: {}", mesh_device->id(), ethernet_cores_virtual);
+        log_info(tt::LogOp, "sender_worker_cores: {}", sender_worker_cores);
+    }
+
+    auto worker_reducer_cores = output_tensor_cores.merge(sender_worker_core_range);
+
+    std::vector<CoreRange> worker_reducer_corerange_vec;
     for (const auto& cr : sub_device_cores.ranges()) {
         const auto intersection = output_tensor_cores.intersection(cr);
         if (intersection.size() > 0) {
@@ -271,7 +438,7 @@ tt::tt_metal::operation::ProgramWithCallbacks all_reduce_async_minimal_multi_cor
     // Create reduction dataflow kernel
     auto reduction_reader_kernel_config = tt::tt_metal::DataMovementConfig{
         .processor = tt::tt_metal::DataMovementProcessor::RISCV_1,
-        .noc = use_noc1_only ? tt::tt_metal::NOC::NOC_1 : reader_noc,
+        .noc = reader_noc,
         .noc_mode = use_noc1_only ? tt::tt_metal::NOC_MODE::DM_DYNAMIC_NOC : tt::tt_metal::NOC_MODE::DM_DEDICATED_NOC};
     reduction_reader_kernel_config.compile_args = {
         reduction_cb_index,  // reduction_cb_index
@@ -399,11 +566,10 @@ tt::tt_metal::operation::ProgramWithCallbacks all_reduce_async_minimal_multi_cor
 
         uint32_t num_mcast_cores = 0;
         for (const auto& range : output_corerangeset_per_link[link].ranges()) {
-            auto start_core = target_device->worker_core_from_logical_core(range.start_coord);
-            auto end_core = target_device->worker_core_from_logical_core(range.end_coord);
-            num_mcast_cores += (end_core.x - start_core.x + 1) * (end_core.y - start_core.y + 1);
-            bool mcast_range_contains_self =
-                start_core.x <= core.x && core.x <= end_core.x && start_core.y <= core.y && core.y <= end_core.y;
+            auto start_core = mesh_device->worker_core_from_logical_core(range.start_coord);
+            auto end_core = mesh_device->worker_core_from_logical_core(range.end_coord);
+            num_mcast_cores += range.size();
+            bool mcast_range_contains_self = range.contains(core);
             if (mcast_range_contains_self) {
                 num_mcast_cores -= 1;
             }
