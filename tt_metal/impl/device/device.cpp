@@ -674,6 +674,7 @@ void Device::initialize_and_launch_firmware() {
         uint32_t virtual_non_worker_cores_idx = 0;
         for (tt::umd::CoreCoord core : eth_cores) {
             auto virtual_core = this->virtual_core_from_physical_core({core.x, core.y});
+            std::cout << "Eth core " << core.str() << " virtualized to " << virtual_core.str() << std::endl;
             core_info->virtual_non_worker_cores[virtual_non_worker_cores_idx++] = {virtual_core.x, virtual_core.y, AddressableCoreType::ETH};
         }
 
