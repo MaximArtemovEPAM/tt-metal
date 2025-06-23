@@ -20,11 +20,6 @@ set(MATMUL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multicore_reuse/matmul_multicore_reuse.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_single_core/matmul_single_core.cpp
 )
-set(MATMUL_SRCS
-    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multi_core/matmul_multi_core.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multicore_reuse/matmul_multicore_reuse.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_single_core/matmul_single_core.cpp
-)
 
 add_compile_definitions(OVERRIDE_KERNEL_PREFIX="tt_metal/programming_examples/")
 include(${PROJECT_SOURCE_DIR}/cmake/helper_functions.cmake)
