@@ -173,6 +173,22 @@ class ModelConfig:
             use_height_and_width_as_shard_shape=True,
         )
 
+        # KVPE Cache
+        self.configs["KVPE_SHAPE"] = (1, self.bsz // DP // TP, 1, self.args.kv_lora_rank + self.args.qk_rope_head_dim)
+        self.configs["KVPE_DTYPE"] = ttnn.bfloat16
+        kvpe_shard_height = nearest_n(self.configs["KVPE_SHAPE"][2], ttnn.TILE_SIZE)
+        kvpe_shard_width = self.configs["KVPE_SHAPE"][3]
+        kvpe_num_cores = self.configs["KVPE_SHAPE"][1]
+        kvpe_core_grid = ttnn.num_cores_to_corerangeset(kvpe_num_cores, self.grid_size, row_wise=True)
+        self.configs["KVPE_MEM_CFG"] = ttnn.create_sharded_memory_config(
+            shape=(kvpe_shard_height, kvpe_shard_width),
+            core_grid=kvpe_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+
+        self.configs["KVPE_CACHE_DTYPE"] = ttnn.bfloat4_b
+
 
 cfg = ModelConfig(ModelArgs())
 
@@ -270,7 +286,6 @@ def run_rope_impl(
     #################
     ### Torch
     #################
-
     position_ids = torch.randint(0, max_seq_len, (bsz,))
     input_torch = torch.randn(shape).float()
     freqs_cis = precompute_freqs_cis(cfg.args)[position_ids, :]
@@ -318,6 +333,83 @@ def run_rope_impl(
     pcc_threshold = 0.99
 
     out_pass, out_pcc = comp_pcc(tt_out_torch, out_torch, pcc_threshold)
+    logger.info(f"Output PCC: {out_pcc}")
+
+    assert out_pass, f"Output mismatch: PCC {out_pcc} < 0.99"
+
+
+def run_update_cache_impl(
+    device,
+    shape,
+    dtype,
+    mem_config,
+    cache_dtype,
+    max_seq_len,
+):
+    layout = ttnn.TILE_LAYOUT
+
+    logger.info("Running update cache with the following configurations:")
+    logger.info(f"Shape: {shape}, Dtype: {dtype}, Memory Config: {mem_config}")
+    logger.info(f"Max Seq Len: {max_seq_len}")
+
+    _, bsz, nkv, head_dim = shape
+
+    #################
+    ### Torch
+    #################
+    cache_torch = torch.randn((bsz, nkv, max_seq_len, head_dim)).float()
+    input_torch = torch.randn(shape).float()
+    current_pos = torch.randint(0, max_seq_len, (bsz,))
+
+    #################
+    ### TT-NN
+    #################
+    tt_cache = ttnn.from_torch(
+        cache_torch,
+        device=device,
+        dtype=cache_dtype,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        layout=layout,
+    )
+
+    tt_input = ttnn.from_torch(
+        input_torch,
+        device=device,
+        dtype=dtype,
+        memory_config=mem_config,
+        layout=layout,
+    )
+
+    tt_current_pos = ttnn.from_torch(
+        current_pos,
+        device=device,
+        dtype=ttnn.int32,
+    )
+
+    ttnn.experimental.paged_update_cache(
+        tt_cache,
+        tt_input,
+        update_idxs_tensor=tt_current_pos,
+    )
+    tt_cache_torch = ttnn.to_torch(tt_cache)
+
+    #################
+    ### Validation
+    #################
+
+    for b in range(bsz):
+        inp = input_torch[:, b, ...].unsqueeze(1)  # [seq_len, b, nkv, head_dim]
+        inp = inp.permute(1, 2, 0, 3)  # [b, nkv, seq_len, head_dim]
+
+        pos = current_pos[b].item()
+
+        cache_torch[b, :, pos : pos + 1, :] = inp
+
+    pcc_threshold = 0.9999
+    if cache_dtype == ttnn.bfloat4_b:
+        pcc_threshold = 0.99
+
+    out_pass, out_pcc = comp_pcc(tt_cache_torch, cache_torch, pcc_threshold)
     logger.info(f"Output PCC: {out_pcc}")
 
     assert out_pass, f"Output mismatch: PCC {out_pcc} < 0.99"
@@ -435,4 +527,43 @@ def test_ropes(
         mem_config=mem_config,
         max_seq_len=max_seq_len,
         rope_theta=rope_theta,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, dtype, mem_config, cache_dtype",
+    [
+        (
+            cfg.configs["KVPE_SHAPE"],
+            cfg.configs["KVPE_DTYPE"],
+            cfg.configs["KVPE_MEM_CFG"],
+            cfg.configs["KVPE_CACHE_DTYPE"],
+        ),
+    ],
+    ids=["kvpe"],
+)
+@pytest.mark.parametrize(
+    "max_seq_len",
+    [
+        cfg.args.max_seq_len,
+    ],
+)
+def test_update_caches(
+    device,
+    shape,
+    dtype,
+    mem_config,
+    cache_dtype,
+    max_seq_len,
+    use_program_cache,
+    function_level_defaults,
+    reset_seeds,
+):
+    run_update_cache_impl(
+        device,
+        shape=shape,
+        dtype=dtype,
+        mem_config=mem_config,
+        cache_dtype=cache_dtype,
+        max_seq_len=max_seq_len,
     )
