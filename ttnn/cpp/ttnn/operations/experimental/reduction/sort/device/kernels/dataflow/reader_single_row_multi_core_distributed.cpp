@@ -101,7 +101,8 @@ void kernel_main() {
         sem_ptr_t sem_self_index_other_ptr = reinterpret_cast<sem_ptr_t>(sem_index_addr);
         const uint32_t index_tensor_other_tile_size_bytes = get_tile_size(index_tensor_other_cb_index);
 
-        uint32_t stages = ilog2(Wt / Wt_per_core);
+        // uint32_t stages = ilog2(Wt / Wt_per_core);
+        uint32_t stages = 2;
         DPRINT << TERM_READER << "[Reader] stages = " << stages << ENDL();
         for (uint32_t stage = 2; stage <= stages; stage++) {
             // Get other core coords
@@ -110,9 +111,10 @@ void kernel_main() {
 
             // Wait for Compute for complete
             // Use sync_with_writer_cb as barrier
-            DPRINT << TERM_READER << "[Reader]] synchronizing with writer" << TERM_RESET << ENDL();
+            DPRINT << TERM_READER << "[Reader] synchronizing with compute" << TERM_RESET << ENDL();
             cb_wait_front(sync_with_reader_cb_index, one_tile);
             cb_pop_front(sync_with_reader_cb_index, one_tile);
+            DPRINT << TERM_READER << "[Reader] synchronized with compute" << TERM_RESET << ENDL();
 
             // Exchange Index tile with peer
             for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {

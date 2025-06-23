@@ -147,7 +147,8 @@ void kernel_main() {
         sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
         const uint32_t value_tensor_other_tile_size_bytes = get_tile_size(value_tensor_other_cb_index);
 
-        uint32_t stages = ilog2(Wt / Wt_per_core);
+        // uint32_t stages = ilog2(Wt / Wt_per_core);
+        uint32_t stages = 2;
         for (uint32_t stage = 2; stage <= stages; stage++) {
             // This will synchronize with compute kernel, as well as with peer core
             // At this point, compute kernel has completed its sorting, we read its data and write
@@ -162,9 +163,10 @@ void kernel_main() {
 
             // Wait for Compute for complete
             // Use sync_with_writer_cb as barrier
-            DPRINT << TERM_WRITER << "[Writer] synchronizing with writer" << TERM_RESET << ENDL();
+            DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
             cb_wait_front(sync_with_writer_cb_index, one_tile);
             cb_pop_front(sync_with_writer_cb_index, one_tile);
+            DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
 
             // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
 
