@@ -20,6 +20,8 @@ from tests.tt_eager.python_api_testing.unit_testing.misc.mla_decode_ops_common i
     precompute_freqs_cis,
     apply_rotary_emb,
 )
+from models.demos.t3000.llama2_70b.reference.llama.llama31_8b.model import RMSNorm as ReferenceRMSNorm
+from models.common.rmsnorm import RMSNorm as RMSNorm
 
 
 TP = 8
@@ -189,6 +191,27 @@ class ModelConfig:
 
         self.configs["KVPE_CACHE_DTYPE"] = ttnn.bfloat4_b
 
+        # q_norm
+        self.configs["QNORM_SHAPE"] = (1, self.bsz // DP, 1, self.args.q_lora_rank)
+        self.configs["QNORM_DTYPE"] = ttnn.bfloat16
+        self.configs["QNORM_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
+
+        # k_norm
+        self.configs["KNORM_SHAPE"] = (1, self.bsz // DP // TP, 1, self.args.kv_lora_rank + self.args.qk_rope_head_dim)
+        self.configs["KNORM_DTYPE"] = ttnn.bfloat16
+        self.configs["KNORM_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
+        # # TODO: Debug, gives bad PCC
+        # knorm_num_cores = min(np.prod(self.grid_size), math.ceil(self.configs["KNORM_SHAPE"][3] / ttnn.TILE_SIZE))
+        # knorm_core_grid = ttnn.num_cores_to_corerangeset(knorm_num_cores, self.grid_size, row_wise=True)
+        # knorm_shard_height = nearest_n(self.configs["KNORM_SHAPE"][2], ttnn.TILE_SIZE) * np.prod(self.configs["KNORM_SHAPE"][:2])
+        # knorm_shard_width = nearest_n(self.configs["KNORM_SHAPE"][3] // knorm_num_cores, ttnn.TILE_SIZE)
+        # self.configs["KNORM_MEM_CFG"] = ttnn.create_sharded_memory_config(
+        #     shape=(knorm_shard_height, knorm_shard_width),
+        #     core_grid=knorm_core_grid,
+        #     strategy=ttnn.ShardStrategy.WIDTH,
+        #     use_height_and_width_as_shard_shape=True,
+        # )
+
 
 cfg = ModelConfig(ModelArgs())
 
@@ -256,7 +279,6 @@ def run_matmul_impl(
     #################
     ### Validation
     #################
-
     pcc_threshold = 0.99
 
     out_pass, out_pcc = comp_pcc(tt_out_torch, out_torch, pcc_threshold)
@@ -329,7 +351,6 @@ def run_rope_impl(
     #################
     ### Validation
     #################
-
     pcc_threshold = 0.99
 
     out_pass, out_pcc = comp_pcc(tt_out_torch, out_torch, pcc_threshold)
@@ -396,7 +417,6 @@ def run_update_cache_impl(
     #################
     ### Validation
     #################
-
     for b in range(bsz):
         inp = input_torch[:, b, ...].unsqueeze(1)  # [seq_len, b, nkv, head_dim]
         inp = inp.permute(1, 2, 0, 3)  # [b, nkv, seq_len, head_dim]
@@ -410,6 +430,62 @@ def run_update_cache_impl(
         pcc_threshold = 0.99
 
     out_pass, out_pcc = comp_pcc(tt_cache_torch, cache_torch, pcc_threshold)
+    logger.info(f"Output PCC: {out_pcc}")
+
+    assert out_pass, f"Output mismatch: PCC {out_pcc} < 0.99"
+
+
+def run_rmsnorm_impl(
+    device,
+    shape,
+    dtype,
+    mem_config,
+):
+    layout = ttnn.TILE_LAYOUT
+
+    logger.info("Running RMSNorm with the following configurations:")
+    logger.info(f"Shape: {shape}, Dtype: {dtype}, Memory Config: {mem_config}")
+
+    _, bsz, nh, head_dim = shape
+
+    #################
+    ### Torch
+    #################
+    input_torch = torch.randn(shape).float()
+    rms_norm = ReferenceRMSNorm(head_dim, eps=1e-5)
+    out_torch = rms_norm(input_torch)
+
+    #################
+    ### TT-NN
+    #################
+    tt_input = ttnn.from_torch(
+        input_torch,
+        device=device,
+        dtype=dtype,
+        memory_config=mem_config,
+        layout=layout,
+    )
+
+    state_dict = {
+        "rms_norm_weight.weight": rms_norm.weight.unsqueeze(0),
+    }
+    tt_rms_norm = RMSNorm(
+        device=device,
+        dim=head_dim,
+        eps=1e-5,
+        weight_key="rms_norm_weight",
+        state_dict=state_dict,
+    )
+
+    tt_out = tt_rms_norm(tt_input, mode="decode")
+    tt_out_torch = ttnn.to_torch(tt_out)
+
+    #################
+    ### Validation
+    #################
+    pcc_threshold = 0.9999
+
+    out_pass, out_pcc = comp_pcc(tt_out_torch, out_torch, pcc_threshold)
     logger.info(f"Output PCC: {out_pcc}")
 
     assert out_pass, f"Output mismatch: PCC {out_pcc} < 0.99"
@@ -566,4 +642,37 @@ def test_update_caches(
         mem_config=mem_config,
         cache_dtype=cache_dtype,
         max_seq_len=max_seq_len,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, dtype, mem_config",
+    [
+        (
+            cfg.configs["QNORM_SHAPE"],
+            cfg.configs["QNORM_DTYPE"],
+            cfg.configs["QNORM_MEM_CFG"],
+        ),
+        (
+            cfg.configs["KNORM_SHAPE"],
+            cfg.configs["KNORM_DTYPE"],
+            cfg.configs["KNORM_MEM_CFG"],
+        ),
+    ],
+    ids=["q_norm", "k_norm"],
+)
+def test_rmsnorms(
+    device,
+    shape,
+    dtype,
+    mem_config,
+    use_program_cache,
+    function_level_defaults,
+    reset_seeds,
+):
+    run_rmsnorm_impl(
+        device,
+        shape=shape,
+        dtype=dtype,
+        mem_config=mem_config,
     )
