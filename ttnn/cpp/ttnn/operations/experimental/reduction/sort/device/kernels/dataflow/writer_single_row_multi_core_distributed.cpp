@@ -43,6 +43,23 @@ FORCE_INLINE void generate_index_tile(const uint32_t cb_id, const uint32_t wt) {
     cb_push_back(cb_id, one_tile);
 }
 
+FORCE_INLINE void generate_index_tile_dummy(const uint32_t cb_id, const uint32_t wt) {
+    constexpr uint32_t ONE_TILE = 1;
+
+    cb_reserve_back(cb_id, ONE_TILE);
+
+    const uint32_t writer_addr = get_write_ptr(cb_id);
+    const uint32_t tile_size_bytes = get_tile_size(cb_id);
+    volatile tt_l1_ptr uint16_t* ptr = reinterpret_cast<volatile tt_l1_ptr uint16_t*>(writer_addr);
+
+    // Fill with 0
+    for (uint32_t i = 0; i < tile_size_bytes / sizeof(uint16_t); i++) {
+        ptr[i] = 0;
+    }
+
+    cb_push_back(cb_id, ONE_TILE);
+}
+
 FORCE_INLINE void print_row_bf16(uint16_t* ptr, uint32_t len) {
     DPRINT << TERM_WRITER;
     DPRINT << "[";
@@ -139,9 +156,12 @@ void kernel_main() {
         //                    get_absolute_logical_y() * compute_with_storage_grid_size_x + get_absolute_logical_x();
         const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
 
+        DPRINT << TERM_WRITER << "[Writer] index tile data format = " << (uint32_t)get_dataformat(index_tensor_cb_index)
+               << TERM_RESET << ENDL();
+
         // Generate index tiles
         for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
-            generate_index_tile(index_tensor_cb_index, w);
+            generate_index_tile_dummy(index_tensor_cb_index, w);
         }  // Wt loop
 
         sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
@@ -196,6 +216,9 @@ void kernel_main() {
                 DPRINT << TERM_WRITER
                        << "[Writer] sending other tile back to compute, other_cb = " << value_tensor_other_cb_index
                        << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] tile [" << w << "] = " << TERM_RESET << ENDL();
+                print_row_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr), DEBUG_PRINT_LEN);
+
                 cb_push_back(value_tensor_other_cb_index, one_tile);
 
                 cb_pop_front(input_tensor_transposed_cb_index, one_tile);

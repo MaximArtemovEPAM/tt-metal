@@ -9,6 +9,33 @@
 #include "sort_distributed_common.hpp"
 #include "../sort_debug_common.hpp"
 
+FORCE_INLINE void print_row_bf16(uint16_t* ptr, uint32_t len) {
+    DPRINT << TERM_READER;
+    DPRINT << "[";
+    for (uint32_t i = 0; i < len; i++) {
+        uint16_t val = ptr[i];
+        DPRINT << " " << BF16(val) << " (" << HEX{} << val << DEC{} << ")";
+    }
+    DPRINT << "]" << TERM_RESET << ENDL();
+}
+
+FORCE_INLINE void print_tile_bf16(uint16_t* tile_ptr) {
+    constexpr uint32_t FACE_LEN = 16;
+    constexpr uint32_t TILE_LEN = 32 * 32;
+    constexpr uint32_t TILE_HEIGHT = TILE_LEN / FACE_LEN;
+
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < TILE_HEIGHT; i++) {
+        DPRINT << TERM_READER << i << " | ";
+        for (uint32_t j = 0; j < FACE_LEN; j++, offset++) {
+            uint32_t val = tile_ptr[offset];
+
+            DPRINT << SETW(6) << BF16(val) << " ";
+        }
+        DPRINT << TERM_RESET << ENDL();
+    }
+}
+
 /*
 To improve performance of both reader and writer kernels the work has been split so that they both prepare input and
 save output data.
@@ -94,6 +121,9 @@ void kernel_main() {
             cb_reserve_back(input_tensor_cb_index, one_tile);
             const uint32_t l1_write_addr = get_write_ptr(input_tensor_cb_index);
             noc_async_read_tile(h * Wt + w, interleaved_accessor0, l1_write_addr);
+            DPRINT << TERM_READER << "[Reader] tile [" << w << "] = " << TERM_RESET << ENDL();
+            print_row_bf16(reinterpret_cast<uint16_t*>(l1_write_addr), 8);
+
             noc_async_read_barrier();
             cb_push_back(input_tensor_cb_index, one_tile);
         }  // Wt loop

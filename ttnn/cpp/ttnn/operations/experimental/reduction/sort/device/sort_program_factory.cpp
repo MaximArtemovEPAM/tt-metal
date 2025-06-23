@@ -602,8 +602,10 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::datatype_to_dataformat_converter(tensor_args.input_tensor.dtype());
     const tt::DataFormat value_tensor_cb_data_format =
         tt::tt_metal::datatype_to_dataformat_converter(output_tensors.at(0).dtype());
-    const tt::DataFormat index_tensor_cb_data_format =
-        tt::tt_metal::datatype_to_dataformat_converter(output_tensors.at(1).dtype());
+    // const tt::DataFormat index_tensor_cb_data_format =
+    //     tt::tt_metal::datatype_to_dataformat_converter(output_tensors.at(1).dtype());
+    const tt::DataFormat index_tensor_cb_data_format = tt::DataFormat::Float16_b;  // temporary fix
+
     const tt::DataFormat sync_cb_data_format =
         tt::DataFormat::Float16_b;  // Note: Format does not matter here, CB is only used as barrier
 
