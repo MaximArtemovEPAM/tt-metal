@@ -1,4 +1,4 @@
-import sys
+import argparse
 from glob import glob
 from itertools import chain
 from typing import Any, Callable
@@ -73,7 +73,7 @@ def unload_weight_from_weights_dict(
 def add_dynamic_weight_loading_hooks(
     module: torch.nn.Module,
     weights_dict: dict[str, torch.Tensor],
-    lazy_modules: list[str] = ["DeepseekV3MLP"],
+    lazy_modules: list[str] = ["DeepseekV3MLP", "DeepseekV3Attention"],
     model_name: str = "",
 ):
     is_lazy = any(module.__class__.__name__ == lazy_module for lazy_module in lazy_modules)
@@ -100,95 +100,138 @@ def add_dynamic_weight_loading_hooks(
 def log_io_to_torch_hooks(
     filepath: str,
 ) -> tuple[
-    Callable[[torch.nn.Module], Any],
+    Callable[[torch.nn.Module, list[str]], Any],
     Callable[[torch.nn.Module, str, Any, dict[str, Any], Any], Any],
     Callable[[torch.nn.Module], Any],
 ]:
     per_model_log: dict[torch.nn.Module, dict[str, tuple[tuple, dict[str, Any], Any]]] = {}
+    per_model_submodules_list: dict[torch.nn.Module, list[str]] = {}
 
-    def module_pre_hook(model: torch.nn.Module):
+    def model_pre_hook(
+        model: torch.nn.Module,
+        submodules_list: list[str],
+        per_model_log: dict[torch.nn.Module, dict[str, tuple[tuple, dict[str, Any], Any]]] = per_model_log,
+        per_model_submodules_list=per_model_submodules_list,
+    ):
         per_model_log[model] = {}
+        per_model_submodules_list[model] = submodules_list[:]  # Copy the list to avoid mutation issues
 
-    def submodule_hook(model: torch.nn.Module, name: str, args: tuple, kwargs: dict[str, Any], output: Any):
+    def submodule_hook(
+        model: torch.nn.Module,
+        name: str,
+        args: tuple,
+        kwargs: dict[str, Any],
+        output: Any,
+        per_model_log: dict[torch.nn.Module, dict[str, tuple[tuple, dict[str, Any], Any]]] = per_model_log,
+        per_model_submodules_list=per_model_submodules_list,
+        io_log_filepath: str = filepath,
+    ):
         assert name not in per_model_log[model], (
             name,
             per_model_log[model],
             "Logging modules that are invoked multiple times per model run is not supported at the moment",
         )
+        assert name in per_model_submodules_list[model]
         per_model_log[model][name] = (args, kwargs, output)
+        if len(per_model_log[model]) == len(per_model_submodules_list):
+            print(f"Saving the model io log into {io_log_filepath}")
+            torch.save(per_model_log[model], io_log_filepath)
+            exit(0)
 
-    def module_hook(model: torch.nn.Module):
-        if model not in per_model_log:
-            raise RuntimeError(f"module_pre_hook was not called before module_hook for model={model}")
-        torch.save(per_model_log[model], filepath)
+    def model_hook(_: torch.nn.Module):
+        raise RuntimeError("The execution should have already exited in the submodule_hook")
 
-    return module_pre_hook, submodule_hook, module_hook
+    return model_pre_hook, submodule_hook, model_hook
 
 
 def add_model_io_logging_hooks(
     model: torch.nn.Module,
-    model_pre_hook: Callable[[torch.nn.Module], Any],
+    model_pre_hook: Callable[[torch.nn.Module, list[str]], Any],
     submodule_hook: Callable[[torch.nn.Module, str, Any, dict[str, Any], Any], Any],
     model_hook: Callable[[torch.nn.Module], Any],
-    logged_modules: list[str] = [
-        "DeepseekV3MLP",
-        "DeepseekV3MoE",
-        "DeepseekV3Attention",
-        "DeepseekV3DecoderLayer",
-        "DeepseekV3Model",
-        "DeepseekV3RMSNorm",
-    ],
+    logged_modules: list[str],
 ):
+    logged_modules_used: dict[str, bool] = {name: False for name in logged_modules}
+    logged_submodule_names = []
     for name, submodule in model.named_modules():
-        if any(submodule.__class__.__name__ == logged_module for logged_module in logged_modules):
-            assert name != "lm_head"
+        if submodule.__class__.__name__ in logged_modules_used or name in logged_modules_used:
+            logged_submodule_names.append(name)
             submodule.register_forward_hook(
                 lambda _, args, kwargs, output, model=model, name=name: submodule_hook(
                     model, name, args, kwargs, output
                 ),
                 with_kwargs=True,
             )
-    model.register_forward_pre_hook(lambda _, args, model=model: model_pre_hook(model))
+            if submodule.__class__.__name__ in logged_modules_used:
+                logged_modules_used[submodule.__class__.__name__] = True
+            if name in logged_modules_used:
+                logged_modules_used[name] = True
+    if any(not used for used in logged_modules_used.values()):
+        raise ValueError(
+            f"The following modules were not found in the model: {', '.join(name for name, used in logged_modules_used.items() if not used)}"
+        )
+    model.register_forward_pre_hook(lambda _, args, model=model: model_pre_hook(model, logged_submodule_names))
     model.register_forward_hook(lambda _, args, output, model=model: model_hook(model))
 
 
-def main(local_model_path: str, prompt: str, model_io_log_filepath: str | None = None):
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="A script to trace the IO of the deepseek model.")
+    parser.add_argument("local_model_path", type=str, help="Path to the local model directory.")
+    parser.add_argument("prompt", type=str, help="Prompt to generate outputs for.")
+    parser.add_argument(
+        "path_to_model_io_log",
+        type=str,
+        help="Path to output the selected layers' IO to. The log is a torch-saved dict from submodule names to the tuple (input args, input kwargs, output)",
+    )
+    parser.add_argument(
+        "layers",
+        nargs="*",
+        type=str,
+        help="List of layers to log IO for. Can either be a torch module name or a state-dict-style layer path. Defaults to a hardcoded layer types.",
+        default=[
+            "DeepseekV3MLP",
+            "DeepseekV3MoE",
+            "DeepseekV3Attention",
+            "DeepseekV3DecoderLayer",
+            "DeepseekV3Model",
+            "DeepseekV3RMSNorm",
+        ],
+    )
+    return parser
+
+
+def main():
+    # Parse the sysargs
+    parser = create_parser()
+    args = parser.parse_args()
+
     # Load the tokenizer
     print("Loading tokenizer")
-    tokenizer = load_tokenizer(local_model_path)
+    tokenizer = load_tokenizer(args.local_model_path)
     print("Tokenizer loaded successfully")
 
     # Load the model with uninitialized weights
     print("Loading uninitialized model")
-    model = load_model_uninitialized(local_model_path)
+    model = load_model_uninitialized(args.local_model_path)
     print("Model loaded successfully")
 
     # Load the model weights
     print("Loading model weights")
-    weights_dict = load_model_weights(local_model_path)
+    weights_dict = load_model_weights(args.local_model_path)
     add_dynamic_weight_loading_hooks(model, weights_dict)
     print("Model weights loaded successfully")
 
     # Set up logging hooks
-    if model_io_log_filepath:
-        print("Setting up model I/O logging hooks")
-        module_pre_hook, submodule_hook, module_hook = log_io_to_torch_hooks(model_io_log_filepath)
-        add_model_io_logging_hooks(model, module_pre_hook, submodule_hook, module_hook)
+    print("Setting up model I/O logging hooks")
+    module_pre_hook, submodule_hook, module_hook = log_io_to_torch_hooks(args.path_to_model_io_log)
+    add_model_io_logging_hooks(model, module_pre_hook, submodule_hook, module_hook, args.layers)
 
     # Run the model
-    model_inputs = tokenizer(prompt, return_tensors="pt")
+    model_inputs = tokenizer(args.prompt, return_tensors="pt")
     print("Running the model")
     with torch.no_grad():
         _ = model(model_inputs.input_ids)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        main(sys.argv[1], sys.argv[2])
-    elif len(sys.argv) == 4:
-        main(sys.argv[1], sys.argv[2], sys.argv[3])
-    else:
-        raise ValueError(
-            "Usage: python deepseek-reference-outputs-gen.py <local_model_path> <prompt> [model_io_log_filepath]\n\
-                         The log is a torch-saved dict from model paths to the tuple of (input args, input kwargs, output)."
-        )
+    main()
