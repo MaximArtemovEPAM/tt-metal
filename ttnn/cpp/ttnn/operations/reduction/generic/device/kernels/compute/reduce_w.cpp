@@ -9,6 +9,9 @@
 #else
 #include "compute_kernel_api/matmul.h"
 #endif
+#include "../../../../../kernel_helper_functions/reduce_cb.hpp"
+#define REDUCE_OP PoolType::SUM
+#define REDUCE_DIM ReduceDim::REDUCE_ROW
 
 namespace NAMESPACE {
 
@@ -16,6 +19,7 @@ void MAIN {
     uint32_t Ht = get_compile_time_arg_val(0);
     uint32_t Wt = get_compile_time_arg_val(1);
     uint32_t NC = get_compile_time_arg_val(2);
+    uint32_t num_dst_regs = get_compile_time_arg_val(3);
 
 #ifndef REDUCE_ROW_SUM_VIA_MM
     reduce_init<true>(tt::CBIndex::c_0, tt::CBIndex::c_2, tt::CBIndex::c_3);
@@ -31,22 +35,23 @@ void MAIN {
             // tiles are expected to be coming in in NCHW order (W-contiguous)
             // reducing in W means out[h][0] = sum(w=0..W-1, in[h][w])
             // in this case we just sequentially add to accumulator all the W-tiles in a row
-            acquire_dst();
-            for (uint32_t wt = 0; wt < Wt; ++wt) {
-                cb_wait_front(tt::CBIndex::c_0, onetile);
-                // REDUCE_OP is expected to come from add_define
-#ifndef REDUCE_ROW_SUM_VIA_MM
-                reduce_tile(tt::CBIndex::c_0, tt::CBIndex::c_2, 0, 0, reduce_dst_idx);
-#else
-                matmul_tiles(tt::CBIndex::c_0, tt::CBIndex::c_2, 0, 0, 0, false);
-#endif
-                cb_pop_front(tt::CBIndex::c_0, onetile);
-            }
-
-            cb_reserve_back(tt::CBIndex::c_3, onetile);
-            pack_tile(reduce_dst_idx, tt::CBIndex::c_3);
-            cb_push_back(tt::CBIndex::c_3, onetile);
-            release_dst();
+            // #ifndef REDUCE_ROW_SUM_VIA_MM
+            //             acquire_dst();
+            //             for (uint32_t wt = 0; wt < Wt; ++wt) {
+            //                 cb_wait_front(tt::CBIndex::c_0, onetile);
+            //                 // REDUCE_OP is expected to come from add_define
+            //                 reduce_tile(tt::CBIndex::c_0, tt::CBIndex::c_2, 0, 0, reduce_dst_idx);
+            //                 cb_pop_front(tt::CBIndex::c_0, onetile);
+            //             }
+            //
+            //             cb_reserve_back(tt::CBIndex::c_3, onetile);
+            //             pack_tile(reduce_dst_idx, tt::CBIndex::c_3);
+            //             cb_push_back(tt::CBIndex::c_3, onetile);
+            //             release_dst();
+            // #else
+            pairwise_reduce_cb(
+                tt::CBIndex::c_0, tt::CBIndex::c_2, tt::CBIndex::c_4, tt::CBIndex::c_3, Wt, num_dst_regs);
+            // #endif
         }
     }
 }

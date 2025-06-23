@@ -4,11 +4,11 @@
 
 #include <stdint.h>
 #include "dataflow_api.h"
-#ifndef REDUCE_ROW_SUM_VIA_MM
+// #ifndef REDUCE_ROW_SUM_VIA_MM
 #include "cpp/ttnn/deprecated/tt_dnn/kernels/dataflow/generate_reduce_scaler.hpp"
-#else
+// #else
 #include "cpp/ttnn/deprecated/tt_dnn/kernels/dataflow/generate_mm_scaler.hpp"
-#endif
+// #endif
 
 void kernel_main() {
     uint32_t src_addr = get_arg_val<uint32_t>(0);
@@ -18,11 +18,16 @@ void kernel_main() {
     constexpr uint32_t scaler = get_compile_time_arg_val(1);
 
     constexpr uint32_t cb_id_in2 = 2;
-#ifndef REDUCE_ROW_SUM_VIA_MM
+
+    // #ifndef REDUCE_ROW_SUM_VIA_MM
     generate_reduce_scaler(cb_id_in2, scaler);
-#else
-    generate_mm_scaler(cb_id_in2, scaler);
-#endif
+    // #else
+    //     generate_mm_scaler(cb_id_in2, scaler);
+    // #endif
+    // This is a binary for 1.0f in Bfloat16 representation
+    uint32_t one = 0x3f803f80;
+    // generate_mm_scaler(cb_id_in2, one);
+    generate_reduce_scaler(cb_id_in2, one);
 
     constexpr uint32_t cb_id_in0 = 0;
 
