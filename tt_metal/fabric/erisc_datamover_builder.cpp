@@ -50,6 +50,57 @@ namespace tt::tt_fabric {
 //                         ------------------
 //
 
+/**
+ * Configure RISC settings based on architecture and RISC ID.
+ * This function centralizes the RISC configuration logic for easy modification.
+ *
+ * @param risc_id The RISC ID (0 or 1)
+ * @param arch The architecture (WORMHOLE_B0 or BLACKHOLE)
+ * @param enable_handshake Output parameter for handshake enable
+ * @param enable_context_switch Output parameter for context switch enable
+ * @param enable_interrupts Output parameter for interrupts enable
+ * @param is_sender_channel_serviced Output parameter for sender channel service flags
+ * @param is_receiver_channel_serviced Output parameter for receiver channel service flags
+ */
+void configure_risc_settings(
+    uint32_t risc_id,
+    tt::ARCH arch,
+    bool& enable_handshake,
+    bool& enable_context_switch,
+    bool& enable_interrupts,
+    std::array<bool, FabricEriscDatamoverConfig::num_sender_channels>& is_sender_channel_serviced,
+    std::array<bool, FabricEriscDatamoverConfig::num_receiver_channels>& is_receiver_channel_serviced) {
+    if (arch == tt::ARCH::WORMHOLE_B0) {
+        // Wormhole: All RISC cores handle both sender and receiver channels
+        enable_handshake = true;
+        enable_context_switch = true;
+        enable_interrupts = true;
+        is_sender_channel_serviced.fill(true);
+        is_receiver_channel_serviced.fill(true);
+    } else if (arch == tt::ARCH::BLACKHOLE) {
+        // Blackhole: Distribute sender/receiver across two RISC cores
+        if (risc_id == 0) {
+            // ERISC0: Handle sender channels only
+            enable_handshake = true;
+            enable_context_switch = true;
+            enable_interrupts = false;
+            is_sender_channel_serviced.fill(true);
+            is_receiver_channel_serviced.fill(false);
+        } else if (risc_id == 1) {
+            // ERISC1: Handle receiver channels only
+            enable_handshake = false;
+            enable_context_switch = false;
+            enable_interrupts = false;
+            is_sender_channel_serviced.fill(false);
+            is_receiver_channel_serviced.fill(true);
+        } else {
+            TT_THROW("Invalid RISC ID {} for BLACKHOLE architecture", risc_id);
+        }
+    } else {
+        TT_THROW("Unsupported architecture for RISC configuration: {}", magic_enum::enum_name(arch));
+    }
+}
+
 FabricRiscConfig::FabricRiscConfig(uint32_t risc_id) :
     enable_handshake_(true),
     enable_context_switch_(true),
@@ -57,18 +108,15 @@ FabricRiscConfig::FabricRiscConfig(uint32_t risc_id) :
     iterations_between_ctx_switch_and_teardown_checks_(
         FabricEriscDatamoverConfig::default_iterations_between_ctx_switch_and_teardown_checks) {
     auto arch = tt::tt_metal::MetalContext::instance().hal().get_arch();
-    if (arch == tt::ARCH::WORMHOLE_B0) {
-        this->is_sender_channel_serviced_.fill(true);
-        this->is_receiver_channel_serviced_.fill(true);
-    } else if (arch == tt::ARCH::BLACKHOLE) {
-        this->is_sender_channel_serviced_.fill(risc_id == 0);
-        // TODO: set this to be risc_id == 1 when we want to split sender/receiver on the two eriscs
-        this->is_receiver_channel_serviced_.fill(risc_id == 0);
-        this->enable_context_switch_ = false;
-        this->enable_interrupts_ = false;
-    } else {
-        TT_THROW("Unsupported architecture for FabricRiscConfig: {}", magic_enum::enum_name(arch));
-    }
+
+    configure_risc_settings(
+        risc_id,
+        arch,
+        this->enable_handshake_,
+        this->enable_context_switch_,
+        this->enable_interrupts_,
+        this->is_sender_channel_serviced_,
+        this->is_receiver_channel_serviced_);
 }
 
 FabricEriscDatamoverConfig::FabricEriscDatamoverConfig(Topology topology) {
