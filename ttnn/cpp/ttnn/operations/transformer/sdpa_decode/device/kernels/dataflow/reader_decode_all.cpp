@@ -158,7 +158,10 @@ void kernel_main() {
                 q_write_ptr += q_tile_bytes;
             }
         } else {
-            noc_async_read(q_read_addr, q_write_ptr, q_chunk_tiles_bytes);
+            noc_async_read(
+                q_read_addr,
+                q_write_ptr,
+                q_chunk_tiles_bytes);  // Sus, q_chunk_tiles_bytes is incorrect for row major; can be less for free
         }
         noc_async_read_barrier();
         if constexpr (tilize_q) {

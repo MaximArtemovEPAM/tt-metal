@@ -138,13 +138,15 @@ void MAIN {
         cb_wait_front(cb_q_rm, q_chunk_tiles);
         cb_reserve_back(cb_q_in, q_chunk_tiles);
         tilize_block(cb_q_rm, q_chunk_tiles, cb_q_in);
+        tilize_uninit(cb_q_rm, cb_q_in);
         cb_push_back(cb_q_in, q_chunk_tiles);
-        mm_init(cb_q_in, cb_k_in, cb_out_final);
         cb_pop_front(cb_q_rm, q_chunk_tiles);
+
+        mm_init_short(cb_q_in, cb_k_in);
     } else {
         mm_init(cb_q_in, cb_k_in, cb_qk_im);
-        cb_wait_front(cb_q_in, q_chunk_tiles);
     }
+    cb_wait_front(cb_q_in, q_chunk_tiles);
 
 #ifdef DYNAMIC_CHUNK_SIZE
     const uint32_t qk_subblock_h_dynamic = 1;
