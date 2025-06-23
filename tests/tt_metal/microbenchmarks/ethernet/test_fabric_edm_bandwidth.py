@@ -17,7 +17,7 @@ from tabulate import tabulate
 import pandas as pd
 from models.utility_functions import enable_persistent_kernel_cache, disable_persistent_kernel_cache
 
-from conftest import is_6u, get_devices
+from conftest import is_6u
 
 from tt_metal.tools.profiler.common import PROFILER_LOGS_DIR, PROFILER_DEVICE_SIDE_LOG
 
