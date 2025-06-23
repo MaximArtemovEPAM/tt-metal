@@ -25,14 +25,7 @@ from transformers.utils import is_flash_attn_2_available, is_flash_attn_greater_
 import ttnn
 
 from .rmsnorm import DeepseekV3RMSNorm
-from .rope import (
-    DeepseekV3DynamicNTKScalingRotaryEmbedding,
-    DeepseekV3LinearScalingRotaryEmbedding,
-    DeepseekV3RotaryEmbedding,
-    DeepseekV3YarnRotaryEmbedding,
-    apply_rotary_pos_emb,
-    yarn_get_mscale,
-)
+from .rope import DeepseekV3RotaryEmbedding, DeepseekV3YarnRotaryEmbedding, apply_rotary_pos_emb, yarn_get_mscale
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -281,21 +274,7 @@ class DeepseekV3Attention(nn.Module):
         else:
             scaling_type = self.config.rope_scaling["type"]
             scaling_factor = self.config.rope_scaling["factor"]
-            if scaling_type == "linear":
-                self.rotary_emb = DeepseekV3LinearScalingRotaryEmbedding(
-                    self.qk_rope_head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    scaling_factor=scaling_factor,
-                    base=self.rope_theta,
-                )
-            elif scaling_type == "dynamic":
-                self.rotary_emb = DeepseekV3DynamicNTKScalingRotaryEmbedding(
-                    self.qk_rope_head_dim,
-                    max_position_embeddings=self.max_position_embeddings,
-                    scaling_factor=scaling_factor,
-                    base=self.rope_theta,
-                )
-            elif scaling_type == "yarn":
+            if scaling_type == "yarn":
                 kwargs = {
                     key: self.config.rope_scaling[key]
                     for key in [
