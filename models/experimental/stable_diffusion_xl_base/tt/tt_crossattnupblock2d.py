@@ -79,6 +79,7 @@ class TtCrossAttnUpBlock2D(nn.Module):
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
 
+            hidden_states = ttnn.to_memory_config(hidden_states, ttnn.L1_MEMORY_CONFIG)
             hidden_states = ttnn.concat([hidden_states, res_hidden_states], dim=3)
             C = list(hidden_states.shape)[3]
 
@@ -90,6 +91,7 @@ class TtCrossAttnUpBlock2D(nn.Module):
         ttnn.DumpDeviceProfiler(self.device)
 
         if self.upsamplers is not None:
+            hidden_states = ttnn.to_memory_config(hidden_states, ttnn.DRAM_MEMORY_CONFIG)
             hidden_states = ttnn.reshape(hidden_states, [B, H, W, C])
             hidden_states = ttnn.to_layout(hidden_states, ttnn.ROW_MAJOR_LAYOUT)
             hidden_states, [C, H, W] = self.upsamplers.forward(hidden_states)

@@ -89,10 +89,13 @@ class TtBasicTransformerBlock(nn.Module):
             bias=self.tt_norm1_bias,
             epsilon=self.ln_eps,
             compute_kernel_config=self.ln_compute_kernel_config,
-            memory_config=ttnn.L1_MEMORY_CONFIG,
+            memory_config=input_tensor.memory_config(),
         )
         attn_hidden_states = self.attn1(attn_hidden_states, attention_mask, None)
-        hidden_states = ttnn.add(input_tensor, attn_hidden_states, use_legacy=False)
+        input_tensor = ttnn.to_memory_config(input_tensor, attn_hidden_states.memory_config())
+        hidden_states = ttnn.add(
+            input_tensor, attn_hidden_states, use_legacy=False, memory_config=input_tensor.memory_config()
+        )
         ttnn.deallocate(input_tensor)
 
         attn_hidden_states = ttnn.layer_norm(
@@ -101,10 +104,13 @@ class TtBasicTransformerBlock(nn.Module):
             bias=self.tt_norm2_bias,
             epsilon=self.ln_eps,
             compute_kernel_config=self.ln_compute_kernel_config,
-            memory_config=ttnn.L1_MEMORY_CONFIG,
+            memory_config=input_tensor.memory_config(),
         )
         attn_hidden_states = self.attn2(attn_hidden_states, attention_mask, encoder_hidden_states)
-        hidden_states = ttnn.add(hidden_states, attn_hidden_states)
+        hidden_states = ttnn.to_memory_config(hidden_states, attn_hidden_states.memory_config())
+        hidden_states = ttnn.add(
+            hidden_states, attn_hidden_states, use_legacy=False, memory_config=hidden_states.memory_config()
+        )
 
         attn_hidden_states = ttnn.layer_norm(
             hidden_states,
@@ -112,8 +118,13 @@ class TtBasicTransformerBlock(nn.Module):
             bias=self.tt_norm3_bias,
             epsilon=self.ln_eps,
             compute_kernel_config=self.ln_compute_kernel_config,
+            memory_config=hidden_states.memory_config(),
         )
         attn_hidden_states = self.ff(attn_hidden_states)
-        hidden_states = ttnn.add(hidden_states, attn_hidden_states)
+        hidden_states = ttnn.to_memory_config(hidden_states, attn_hidden_states.memory_config())
+        hidden_states = ttnn.add(
+            hidden_states, attn_hidden_states, use_legacy=False, memory_config=hidden_states.memory_config()
+        )
+        hidden_states = ttnn.move(hidden_states)
 
         return hidden_states

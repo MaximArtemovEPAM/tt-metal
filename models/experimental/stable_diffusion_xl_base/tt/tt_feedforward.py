@@ -42,6 +42,15 @@ class TtFeedForward(nn.Module):
             memory_config=ttnn.L1_BLOCK_SHARDED_MEMORY_CONFIG,
             compute_kernel_config=self.default_compute_kernel_config,
         )
-        hidden_states = ttnn.to_memory_config(hidden_states, ttnn.DRAM_MEMORY_CONFIG)
+        if hidden_states.shape[-1] == 640:
+            hidden_states = ttnn.to_memory_config(
+                hidden_states,
+                ttnn.create_sharded_memory_config(
+                    shape=(1, 1, 512, 128),
+                    core_grid=ttnn.CoreGrid(y=8, x=5),
+                    strategy=ttnn.ShardStrategy.BLOCK,
+                    use_height_and_width_as_shard_shape=True,
+                ),
+            )
 
         return hidden_states

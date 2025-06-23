@@ -8,15 +8,19 @@ import re
 
 class ModelOptimisations:
     def __init__(self, conv_act_dtype=ttnn.bfloat16, conv_w_dtype=ttnn.bfloat16):
-        self.conv_configs = {}
-        self.matmul_configs = {}
-        self.compute_configs = {}
         self.prepared_weights = False
         self.conv_w_dtype = conv_w_dtype
         self.conv_ws_dtype = ttnn.bfloat8_b
 
+        self.conv_configs = self.generate_conv_configs(conv_act_dtype, self.conv_w_dtype, self.conv_ws_dtype)
+        self.matmul_configs = self.generate_matmul_configs()
+        self.compute_configs = self.generate_compute_configs()
+        self.memory_configs = self.generate_memory_configs()
+
+    def generate_conv_configs(self, conv_act_dtype, conv_w_dtype, conv_ws_dtype):
+        conv_configs = {}
         # HEIGHT SHARDED
-        self.conv_configs["ABH_256_ADB"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_ADB"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
@@ -31,7 +35,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_NO_ADB_HS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_NO_ADB_HS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
@@ -48,9 +52,9 @@ class ModelOptimisations:
         )
 
         # BLOCK SHARDED
-        self.conv_configs["ABH_32_NO_ADB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_32_NO_ADB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -63,7 +67,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_64_NO_ADB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_NO_ADB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=self.conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
@@ -78,9 +82,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_64_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -94,9 +98,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_64_NO_ADB_WDB_MOVE_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_NO_ADB_WDB_MOVE_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -110,9 +114,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_64_ADB_WDB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_ADB_WDB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -127,9 +131,9 @@ class ModelOptimisations:
             always_preprocess_weights=False,
         )
 
-        self.conv_configs["ABH_64_NO_ADB_BS_BF16"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_NO_ADB_BS_BF16"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_w_dtype,
+            weights_dtype=conv_w_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -143,9 +147,9 @@ class ModelOptimisations:
             always_preprocess_weights=False,
         )
 
-        self.conv_configs["ABH_128_ADB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_ADB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -158,9 +162,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_ADB_WDB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_ADB_WDB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -174,9 +178,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_NO_ADB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_NO_ADB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -189,9 +193,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -205,9 +209,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=False,
             reallocate_halo_output=True,
@@ -221,9 +225,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_NO_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_NO_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=False,
             reallocate_halo_output=True,
@@ -237,9 +241,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_256_NO_ADB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_NO_ADB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_w_dtype,
+            weights_dtype=conv_w_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -252,9 +256,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_256_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_NO_ADB_WDB_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -268,9 +272,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_256_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_ADB_WDB_NO_DEALLOC_BS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             deallocate_activation=False,
             reallocate_halo_output=True,
@@ -286,9 +290,9 @@ class ModelOptimisations:
         )
 
         # WIDTH SHARDED
-        self.conv_configs["ABH_256_NO_ADB_WS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_NO_ADB_WS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -302,9 +306,9 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_512_NO_ADB_WS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_512_NO_ADB_WS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
-            weights_dtype=self.conv_ws_dtype,
+            weights_dtype=conv_ws_dtype,
             shard_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
             deallocate_activation=True,
             reallocate_halo_output=True,
@@ -320,7 +324,7 @@ class ModelOptimisations:
         )
 
         # DEFAULT CONF
-        self.conv_configs["DEFAULT"] = ttnn.Conv2dConfig(
+        conv_configs["DEFAULT"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=None,
@@ -336,7 +340,7 @@ class ModelOptimisations:
         )
 
         # DRAM CONF
-        self.conv_configs["ABH_64_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_64_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=None,
@@ -350,7 +354,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_128_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_128_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=None,
@@ -364,7 +368,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_512_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_512_NO_ADB_DRAM"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=None,
@@ -378,7 +382,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["DEFAULT_DRAM"] = ttnn.Conv2dConfig(
+        conv_configs["DEFAULT_DRAM"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=None,
@@ -392,7 +396,7 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
-        self.conv_configs["ABH_256_NO_ADB_HS"] = ttnn.Conv2dConfig(
+        conv_configs["ABH_256_NO_ADB_HS"] = ttnn.Conv2dConfig(
             dtype=conv_act_dtype,
             weights_dtype=conv_w_dtype,
             shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
@@ -407,8 +411,11 @@ class ModelOptimisations:
             preprocess_weights_on_device=False,
             always_preprocess_weights=False,
         )
+        return conv_configs
 
-        self.matmul_configs["2D_LINEAR_ATTENTION_DO_SEQ_LEN_4096"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+    def generate_matmul_configs(self):
+        matmul_configs = {}
+        matmul_configs["2D_LINEAR_ATTENTION_DO_SEQ_LEN_4096"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(7, 8),
             in0_block_w=1,  # max is 20, 1 seems optimal?
             per_core_M=16,
@@ -419,7 +426,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_LINEAR_ATTENTION_DO_SEQ_LEN_1024"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_LINEAR_ATTENTION_DO_SEQ_LEN_1024"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=4,  # max is 40, 4 seems optimal?
             per_core_M=4,
@@ -430,9 +437,9 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_FF2_SEQ_LEN_1024"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_FF2_SEQ_LEN_1024"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
-            in0_block_w=10,  # max is 20, 10 seems optimal
+            in0_block_w=1,  # max is 20, 10 seems optimal
             out_subblock_h=1,
             out_subblock_w=5,
             per_core_M=4,
@@ -441,9 +448,9 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_FF2_SEQ_LEN_4096"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_FF2_SEQ_LEN_4096"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(7, 8),
-            in0_block_w=10,  # max is 10, 2 seems optimal
+            in0_block_w=2,  # max is 10, 2 seems optimal
             out_subblock_h=1,
             out_subblock_w=3,
             per_core_M=16,
@@ -452,7 +459,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["1D_RESNET_LINEAR"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+        matmul_configs["1D_RESNET_LINEAR"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=10,  # max is 40, 10 seems optimal
             out_subblock_h=1,
@@ -464,12 +471,12 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        in_0_block_w_geglu_640 = 5
+        in_0_block_w_geglu_640 = 1
         per_core_M_geglu_640 = 16
         per_core_N_geglu_640 = 10
         out_subblock_h_geglu_640 = 1
         out_subblock_w_geglu_640 = 5
-        self.matmul_configs["2D_GEGLU_LINEAR_640_SPLIT"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_GEGLU_LINEAR_640_SPLIT"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=in_0_block_w_geglu_640,
             per_core_M=per_core_M_geglu_640,
@@ -480,7 +487,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_GEGLU_LINEAR_640_SPLIT_GELU"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_GEGLU_LINEAR_640_SPLIT_GELU"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=in_0_block_w_geglu_640,
             per_core_M=per_core_M_geglu_640,
@@ -496,7 +503,7 @@ class ModelOptimisations:
         per_core_N_geglu_1280 = 20
         out_subblock_h_geglu_1280 = 1
         out_subblock_w_geglu_1280 = 5
-        self.matmul_configs["2D_GEGLU_LINEAR_1280_SPLIT"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_GEGLU_LINEAR_1280_SPLIT"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=in_0_block_w_geglu_1280,
             per_core_M=per_core_M_geglu_1280,
@@ -507,7 +514,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_GEGLU_LINEAR_1280_SPLIT_GELU"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_GEGLU_LINEAR_1280_SPLIT_GELU"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=in_0_block_w_geglu_1280,
             per_core_M=per_core_M_geglu_1280,
@@ -518,20 +525,30 @@ class ModelOptimisations:
             fused_activation=[ttnn.UnaryOpType.GELU, True],
         )
 
-        self.matmul_configs["2D_TM_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_TM_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
-            in0_block_w=2,
+            in0_block_w=5,
             per_core_M=16,
             per_core_N=3,
-            out_subblock_h=8,
-            out_subblock_w=1,
+            out_subblock_h=1,
+            out_subblock_w=3,
+            transpose_mcast=False,
+            fused_activation=None,
+        )
+        matmul_configs["2D_TM_LINEAR_640_2"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+            compute_with_storage_grid_size=(8, 8),
+            in0_block_w=4,
+            per_core_M=16,
+            per_core_N=3,
+            out_subblock_h=1,
+            out_subblock_w=3,
             transpose_mcast=False,
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_TM_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_TM_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
-            in0_block_w=5,
+            in0_block_w=1,
             per_core_M=4,
             per_core_N=5,
             out_subblock_h=1,
@@ -540,7 +557,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_ATTN_OUT_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_ATTN_OUT_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=4,
             per_core_M=16,
@@ -551,7 +568,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_320_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_320_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=2,
             per_core_M=16,
@@ -563,7 +580,7 @@ class ModelOptimisations:
             fuse_batch=False,
         )
 
-        self.matmul_configs["2D_ATTN_OUT_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_ATTN_OUT_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=5,
             per_core_M=4,
@@ -574,7 +591,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_640_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_640_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=4,
             per_core_M=4,
@@ -585,9 +602,9 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_ATTN_QKV_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_ATTN_QKV_LINEAR_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
-            in0_block_w=4,
+            in0_block_w=1,
             per_core_M=16,
             per_core_N=8,
             out_subblock_h=1,
@@ -596,7 +613,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_2560_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_2560_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=2,
             per_core_M=4,
@@ -607,19 +624,19 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_ATTN_QKV_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_ATTN_QKV_LINEAR_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
-            in0_block_w=4,
+            in0_block_w=5,
             per_core_M=4,
             per_core_N=15,
             out_subblock_h=1,
             out_subblock_w=5,
             transpose_mcast=False,
             fused_activation=None,
-            fuse_batch=False,
+            fuse_batch=True,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_1920_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_1920_1280"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=5,
             per_core_M=4,
@@ -631,7 +648,7 @@ class ModelOptimisations:
             fuse_batch=False,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_1920_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_1920_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=3,
             per_core_M=16,
@@ -642,7 +659,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_1280_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_1280_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=1,
             per_core_M=16,
@@ -653,7 +670,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["2D_RESNET_CONV_960_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        matmul_configs["2D_RESNET_CONV_960_640"] = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=2,
             per_core_M=16,
@@ -664,7 +681,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["1D_RESNET_CONV_960_320"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+        matmul_configs["1D_RESNET_CONV_960_320"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=2,
             out_subblock_h=1,
@@ -677,7 +694,7 @@ class ModelOptimisations:
             fused_activation=None,
         )
 
-        self.matmul_configs["1D_RESNET_CONV_640_320"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+        matmul_configs["1D_RESNET_CONV_640_320"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
             compute_with_storage_grid_size=(8, 8),
             in0_block_w=1,
             out_subblock_h=2,
@@ -689,19 +706,97 @@ class ModelOptimisations:
             fuse_batch=False,
             fused_activation=None,
         )
+        return matmul_configs
 
-        self.compute_configs["DEFAULT_MM_COMPUTE_CONFIG"] = ttnn.WormholeComputeKernelConfig(
+    def generate_compute_configs(self):
+        compute_configs = {}
+        compute_configs["DEFAULT_MM_COMPUTE_CONFIG"] = ttnn.WormholeComputeKernelConfig(
             math_fidelity=ttnn.MathFidelity.HiFi2,
             math_approx_mode=False,
             fp32_dest_acc_en=False,
             packer_l1_acc=True,
         )
-        self.compute_configs["MATH_APPROX_MM_COMPUTE_CONFIG"] = ttnn.WormholeComputeKernelConfig(
+        compute_configs["MATH_APPROX_MM_COMPUTE_CONFIG"] = ttnn.WormholeComputeKernelConfig(
             math_fidelity=ttnn.MathFidelity.HiFi2,
             math_approx_mode=True,
             fp32_dest_acc_en=False,
             packer_l1_acc=True,
         )
+        return compute_configs
+
+    def generate_memory_configs(self):
+        memory_configs = {}
+        memory_configs["BS_2048x40"] = ttnn.create_sharded_memory_config(
+            shape=(2048, 40),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_512x40"] = ttnn.create_sharded_memory_config(
+            shape=(512, 40),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_512x80"] = ttnn.create_sharded_memory_config(
+            shape=(512, 80),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_512x120"] = ttnn.create_sharded_memory_config(
+            shape=(512, 120),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_512x160"] = ttnn.create_sharded_memory_config(
+            shape=(512, 160),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_512x240"] = ttnn.create_sharded_memory_config(
+            shape=(512, 240),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_128x80"] = ttnn.create_sharded_memory_config(
+            shape=(128, 80),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_128x160"] = ttnn.create_sharded_memory_config(
+            shape=(128, 160),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_128x320"] = ttnn.create_sharded_memory_config(
+            shape=(128, 320),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        memory_configs["BS_128x240"] = ttnn.create_sharded_memory_config(
+            shape=(128, 320),
+            core_grid=ttnn.CoreGrid(y=8, x=8),
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        return memory_configs
 
     def clear_weight_preprocess(self):
         if not self.prepared_weights:
@@ -752,9 +847,14 @@ class ModelOptimisations:
                         return self.matmul_configs["2D_GEGLU_LINEAR_1280_SPLIT"]
 
             # # # TM LINEAR # # #
-            if "proj_in" in matmul_path or "proj_out" in matmul_path:
+            if "proj_in" in matmul_path:
                 if "down_blocks.1" in matmul_path or "up_blocks.1" in matmul_path:
                     return self.matmul_configs["2D_TM_LINEAR_640"]
+                else:
+                    return self.matmul_configs["2D_TM_LINEAR_1280"]
+            if "proj_out" in matmul_path:
+                if "down_blocks.1" in matmul_path or "up_blocks.1" in matmul_path:
+                    return self.matmul_configs["2D_TM_LINEAR_640_2"]
                 else:
                     return self.matmul_configs["2D_TM_LINEAR_1280"]
 
@@ -953,3 +1053,64 @@ class ModelOptimisations:
                 return self.conv_configs["ABH_512_NO_ADB_DRAM"]
             else:
                 return self.conv_configs["DEFAULT_DRAM"]
+
+    def get_input_mem_config(self, module_path):
+        if "down_blocks.0.resnets" in module_path:
+            return self.memory_configs["BS_2048x40"]
+        if "down_blocks.1" in module_path:
+            if "down_blocks.1.resnets.0" == module_path:
+                return self.memory_configs["BS_512x40"]
+            else:
+                return self.memory_configs["BS_512x80"]  # attn may need col major
+        if "down_blocks.2" in module_path:
+            if "down_blocks.2.resnets.0" == module_path:
+                return self.memory_configs["BS_128x80"]
+            else:
+                return self.memory_configs["BS_128x160"]  # attn may need col major
+        if "mid_block" in module_path:
+            return self.memory_configs["BS_128x160"]  # attn may need col major
+        if "up_blocks.0" in module_path:
+            if "up_blocks.0.resnets.2" == module_path:
+                return self.memory_configs["BS_128x240"]
+            elif "resnets" in module_path:
+                return self.memory_configs["BS_128x320"]
+            else:
+                return self.memory_configs["BS_128x160"]
+        if "up_blocks.1" in module_path:
+            if "up_blocks.1.resnets.0" == module_path:
+                return self.memory_configs["BS_512x240"]
+            elif "up_blocks.1.resnets.1" == module_path:
+                return self.memory_configs["BS_512x160"]
+            elif "up_blocks.1.resnets.2" == module_path:
+                return self.memory_configs["BS_512x120"]
+            else:
+                return self.memory_configs["BS_512x80"]  # attn may need col major
+        return ttnn.DRAM_MEMORY_CONFIG
+
+    def get_output_memory_config(self, module_path):
+        if "down_blocks.0.resnets.0" in module_path or "down_blocks.0.resnets.1":
+            return self.memory_configs["BS_2048x40"]
+        if "down_blocks.1" in module_path:
+            if "down_blocks.1.attentions.1" != module_path:
+                return self.memory_configs["BS_512x80"]  # attn may need col major
+        if "down_blocks.2" in module_path:
+            if "down_blocks.1.attentions.1" != module_path:
+                return self.memory_configs["BS_128x160"]  # attn may need col major
+        if "mid_block" in module_path:
+            if "mid_block.resnets.1" != module_path:
+                return self.memory_configs["BS_128x160"]  # attn may need col major
+        if "up_blocks.0" in module_path:
+            if "resnets" in module_path:
+                return self.memory_configs["BS_128x160"]
+            elif "up_blocks.0.attentions.0" == module_path:
+                return self.memory_configs["BS_128x320"]
+            elif "up_blocks.0.attentions.1" == module_path:
+                return self.memory_configs["BS_128x240"]
+        if "up_blocks.1" in module_path:
+            if "up_blocks.1.attention.0" == module_path:
+                return self.memory_configs["BS_512x160"]
+            elif "up_blocks.1.attention.1" == module_path:
+                return self.memory_configs["BS_512x120"]
+            elif "resnets" in module_path:
+                return self.memory_configs["BS_512x80"]  # attn may need col major
+        return ttnn.DRAM_MEMORY_CONFIG

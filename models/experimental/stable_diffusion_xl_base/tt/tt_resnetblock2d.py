@@ -157,6 +157,7 @@ class TtResnetBlock2D(nn.Module):
     def forward(self, input_tensor, temb, input_shape):
         B, C, H, W = input_shape
         hidden_states = input_tensor
+        print(input_shape)
 
         if C >= 640 and H >= 128 and W >= 128:
             hidden_states = ttnn.group_norm(
@@ -174,6 +175,7 @@ class TtResnetBlock2D(nn.Module):
             hidden_states = ttnn.to_memory_config(hidden_states, ttnn.DRAM_MEMORY_CONFIG)
         else:
             hidden_states = ttnn.to_layout(input_tensor, ttnn.ROW_MAJOR_LAYOUT)
+            print(hidden_states.shape)
             grid_coord = ttnn.CoreCoord(self.norm_core_grid_1.x - 1, self.norm_core_grid_1.y - 1)
             shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), grid_coord)})
             shard_shape = B * H * W // self.norm_core_grid_1.x, C // self.norm_core_grid_1.y

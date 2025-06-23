@@ -88,33 +88,30 @@ class TtAttention(nn.Module):
         if encoder_hidden_states is None:
             encoder_hidden_states = hidden_states
         B = list(hidden_states.shape)[0]
-
+        if hidden_states.shape[-1] == 640:
+            memory_config = ttnn.create_sharded_memory_config(
+                shape=(1, 1, 512, 128),
+                core_grid=ttnn.CoreGrid(y=8, x=5),
+                strategy=ttnn.ShardStrategy.BLOCK,
+                use_height_and_width_as_shard_shape=True,
+            )
+        else:
+            memory_config = ttnn.create_sharded_memory_config(
+                shape=(1, 1, 1024 // 8, 1280 // 8),
+                core_grid=ttnn.CoreGrid(y=8, x=8),
+                strategy=ttnn.ShardStrategy.BLOCK,
+                use_height_and_width_as_shard_shape=True,
+            )
         if self.is_self_attention:
-            if hidden_states.shape[-1] == 640:
-                memory_config = ttnn.create_sharded_memory_config(
-                    shape=(1, 1, 512, 256),
-                    core_grid=ttnn.CoreGrid(y=8, x=8),
-                    strategy=ttnn.ShardStrategy.BLOCK,
-                    use_height_and_width_as_shard_shape=True,
-                )
-            else:
-                memory_config = ttnn.create_sharded_memory_config(
-                    shape=(1, 1, 1024 // 8, 3840 // 8),
-                    core_grid=ttnn.CoreGrid(y=8, x=8),
-                    strategy=ttnn.ShardStrategy.BLOCK,
-                    use_height_and_width_as_shard_shape=True,
-                )
-
+            print(hidden_states.memory_config())
             qkv_fused = ttnn.matmul(
                 hidden_states,
                 self.tt_qkv_weights,
-                memory_config=memory_config,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
                 dtype=ttnn.bfloat16,
                 compute_kernel_config=self.q_compute_kernel_config,
                 program_config=self.q_program_config,
             )
-            qkv_fused = ttnn.sharded_to_interleaved(qkv_fused, ttnn.L1_MEMORY_CONFIG)
-
             (
                 q_heads,
                 k_heads,
@@ -183,7 +180,7 @@ class TtAttention(nn.Module):
             bias=self.tt_out_bias,
             program_config=self.dense_out_program_config,
             compute_kernel_config=self.default_compute_kernel_config,
-            memory_config=ttnn.L1_MEMORY_CONFIG,
+            memory_config=memory_config,
         )
-
+        hidden_states = ttnn.to_memory_config(hidden_states, memory_config)
         return hidden_states

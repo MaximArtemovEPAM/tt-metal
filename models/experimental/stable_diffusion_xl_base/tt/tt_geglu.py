@@ -34,7 +34,8 @@ class TtGEGLU(nn.Module):
         if input_tensor.shape[2] == 4096:
             # due to block sharded mm constraints, if we block shard the input tensor, we can only run it on 56 cores
             # hence using L1 memory config instead
-            input_tensor = ttnn.to_memory_config(input_tensor, ttnn.L1_MEMORY_CONFIG)
+            # input_tensor = ttnn.to_memory_config(input_tensor, ttnn.L1_MEMORY_CONFIG)
+            pass
         else:
             # here we can run the block sharded matmul on 64 cores
             block_sharded_mem_config = ttnn.create_sharded_memory_config(

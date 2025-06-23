@@ -30,7 +30,10 @@ class TtTransformer2DModel(nn.Module):
 
         self.device = device
 
-        self.norm_core_grid = ttnn.CoreGrid(y=8, x=8)
+        if "down_blocks.1" in module_path or "up_blocks.1" in module_path:
+            self.norm_core_grid = ttnn.CoreGrid(y=8, x=4)
+        else:
+            self.norm_core_grid = ttnn.CoreGrid(y=8, x=8)
         self.norm_groups = 32
         self.norm_eps = 1e-6
 
@@ -73,15 +76,32 @@ class TtTransformer2DModel(nn.Module):
 
     def forward(self, input_tensor, input_shape, attention_mask=None, encoder_hidden_states=None):
         B, C, H, W = input_shape
-        hidden_states = ttnn.to_layout(input_tensor, ttnn.ROW_MAJOR_LAYOUT)
+        hidden_states = input_tensor
+        # hidden_states = ttnn.to_layout(input_tensor, ttnn.ROW_MAJOR_LAYOUT)
 
         grid_coord = ttnn.CoreCoord(self.norm_core_grid.x - 1, self.norm_core_grid.y - 1)
         shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), grid_coord)})
         shard_shape = B * H * W // self.norm_core_grid.x, C // self.norm_core_grid.y
-        shard_spec = ttnn.ShardSpec(shard_grid, shard_shape, ttnn.ShardOrientation.COL_MAJOR)
-        sharded_mem_config = ttnn.MemoryConfig(
-            ttnn.types.TensorMemoryLayout.BLOCK_SHARDED, ttnn.types.BufferType.L1, shard_spec
-        )
+        shard_spec = ttnn.ShardSpec(shard_grid, shard_shape, ttnn.ShardOrientation.ROW_MAJOR)
+        if C == 640:
+            sharded_mem_config = ttnn.create_sharded_memory_config(
+                shape=(512, 160),
+                core_grid=ttnn.CoreGrid(y=8, x=4),
+                strategy=ttnn.ShardStrategy.BLOCK,
+                orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+        else:
+            sharded_mem_config = ttnn.create_sharded_memory_config(
+                shape=(128, 160),
+                core_grid=ttnn.CoreGrid(y=8, x=8),
+                strategy=ttnn.ShardStrategy.BLOCK,
+                orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+        # print(hidden_states.shape)
+        # print(hidden_states.memory_config())
+        # print(sharded_mem_config)
         hidden_states = ttnn.to_memory_config(hidden_states, sharded_mem_config)
 
         hidden_states = ttnn.group_norm(
@@ -93,19 +113,29 @@ class TtTransformer2DModel(nn.Module):
             memory_config=sharded_mem_config,
             core_grid=self.norm_core_grid,
             epsilon=self.norm_eps,
+            inplace=False,
         )
 
-        hidden_states = ttnn.to_memory_config(hidden_states, ttnn.L1_MEMORY_CONFIG)
+        # mem_cfg = ttnn.create_sharded_memory_config(
+        #     shape=(128, 128),
+        #     core_grid=ttnn.CoreGrid(y=8, x=5),
+        #     strategy=ttnn.ShardStrategy.BLOCK,
+        #     orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        #     use_height_and_width_as_shard_shape=True,
+        # )
+        # print(hidden_states.memory_config())
+        # hidden_states = ttnn.to_memory_config(hidden_states, mem_cfg)
 
-        hidden_states = ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT)
+        # hidden_states = ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT)
         hidden_states = ttnn.linear(
             hidden_states,
             self.tt_weights_in,
             bias=self.tt_bias_in,
             program_config=self.program_config_in,
             compute_kernel_config=self.compute_config_in,
+            memory_config=sharded_mem_config,
         )
-
+        print(hidden_states.shape)
         for i, transformer_block in enumerate(self.transformer_blocks):
             hidden_states = transformer_block(hidden_states, attention_mask, encoder_hidden_states)
 
@@ -115,8 +145,21 @@ class TtTransformer2DModel(nn.Module):
             bias=self.tt_bias_out,
             program_config=self.program_config_out,
             compute_kernel_config=self.compute_config_out,
+            memory_config=hidden_states.memory_config(),
         )
+        if C == 640:
+            hidden_states = ttnn.to_memory_config(
+                hidden_states,
+                ttnn.create_sharded_memory_config(
+                    shape=(1, 1, 512, 128),
+                    core_grid=ttnn.CoreGrid(y=8, x=5),
+                    strategy=ttnn.ShardStrategy.BLOCK,
+                    use_height_and_width_as_shard_shape=True,
+                ),
+            )
 
-        hidden_states = ttnn.add(hidden_states, input_tensor)
+        hidden_states = ttnn.add(
+            hidden_states, input_tensor, use_legacy=False, memory_config=hidden_states.memory_config()
+        )
 
         return hidden_states
