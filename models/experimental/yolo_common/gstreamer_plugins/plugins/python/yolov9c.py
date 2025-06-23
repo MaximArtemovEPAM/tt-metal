@@ -16,8 +16,15 @@ import ttnn
 
 # print("ARCH YAML   ", os.environ["WH_ARCH_YAML"])
 
+
+from models.demos.yolov9c.demo.demo_utils import (
+    load_coco_class_names,
+    postprocess,
+)
+
 from models.demos.yolov9c.runner.performant_runner import YOLOv9PerformantRunner
-from models.experimental.yolo_evaluation.yolo_evaluation_utils import postprocess
+
+# from models.experimental.yolo_evaluation.yolo_evaluation_utils import postprocess
 from models.demos.yolov9c.demo.demo_utils import load_coco_class_names
 from models.experimental.yolo_evaluation.yolo_evaluation_utils import postprocess as obj_postprocess
 
@@ -73,8 +80,8 @@ class Yolov9c(GstBase.BaseTransform):
         self.device = ttnn.CreateDevice(
             device_id,
             dispatch_core_config=self.get_dispatch_core_config(),
-            l1_small_size=24576,
-            trace_region_size=3211264,
+            l1_small_size=79104,
+            trace_region_size=23887872,
             num_command_queues=2,
         )
         self.device.enable_program_cache()
@@ -89,6 +96,30 @@ class Yolov9c(GstBase.BaseTransform):
         )
         self.model._capture_yolov9_trace_2cqs()
         print("########################################", self.batch_size)
+
+    def save_seg_predictions_by_model(self, result, image, model_name):
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        print(result.masks)
+
+        masks = result.masks.data.cpu().detach().numpy()
+        mask_h, mask_w = masks.shape[1], masks.shape[2]
+
+        image = cv2.resize(image, (mask_w, mask_h))
+        overlay = image.copy()
+
+        for i in range(len(masks)):
+            mask = masks[i]
+            color = get_consistent_color(i)
+            mask_rgb = np.zeros_like(image, dtype=np.uint8)
+            for c in range(3):
+                mask_rgb[:, :, c] = (mask * color[c]).astype(np.uint8)
+
+            mask_bool = mask.astype(bool)
+            overlay[mask_bool] = (0.5 * overlay[mask_bool] + 0.5 * mask_rgb[mask_bool]).astype(np.uint8)
+
+        overlay_bgr = cv2.cvtColor(overlay, cv2.COLOR_RGB2BGRA)
+        print(overlay_bgr)
+        return overlay_bgr
 
     def save_yolo_predictions_by_model(self, result, image, model_name):
         if model_name == "torch_model":
@@ -129,13 +160,18 @@ class Yolov9c(GstBase.BaseTransform):
         else:
             raise AttributeError(f"Unknown property {prop.name}")
 
+    def do_start(self):
+        print("Starting Yolov9c element, initializing device and model...")
+        self.initialize_device()
+        return True
+
     def do_set_property(self, prop: GObject.GParamSpec, value):
         if prop.name == "type":
             self.model_task = value
             print("SET PROP", prop.name, value)
         else:
             raise AttributeError(f"Unknown property {prop.name}")
-        self.initialize_device()
+        # self.initialize_device()
 
     def do_transform(self, inbuf: Gst.Buffer, outbuf: Gst.Buffer) -> Gst.FlowReturn:
         try:
@@ -146,10 +182,10 @@ class Yolov9c(GstBase.BaseTransform):
             original_frame_for_drawing = []
             # frame_data1 = np.frombuffer(in_map_info.data, dtype=np.uint8).reshape(640, 640, 4)
             frame_data_bgrx = np.frombuffer(in_map_info.data, dtype=np.uint8).reshape(640, 640, 4)
-            original_frame_for_drawing.append(frame_data_bgrx[:, :, :3].copy())
+            original_frame_for_drawing = frame_data_bgrx[:, :, :3].copy()
             # frame_data = frame_data1[:, :, :3].copy()
             # frame_data = cv2.cvtColor(frame_data, cv2.COLOR_BGR2RGB)
-            frame_data_rgb = cv2.cvtColor(original_frame_for_drawing[0], cv2.COLOR_BGR2RGB)
+            frame_data_rgb = cv2.cvtColor(original_frame_for_drawing, cv2.COLOR_BGR2RGB)
             frame_data_rgb = np.array(frame_data_rgb)
 
             if type(frame_data_rgb) == np.ndarray and len(frame_data_rgb.shape) == 3:
@@ -159,33 +195,42 @@ class Yolov9c(GstBase.BaseTransform):
 
             ts = time.time()
             torch_frame_data = torch.permute(torch_frame_data, (0, 3, 1, 2))
-            print("INPUT", torch_frame_data)
-            print("INPUT", torch_frame_data.shape)
+            # print("INPUT", torch_frame_data)
+            # print("INPUT", torch_frame_data.shape)
 
             preds = self.model.run(torch_frame_data)
             # out = ttnn.to_torch(out[0], dtype=torch.float32)
             print("######################A1")
-            print(preds)
-            preds[0] = ttnn.to_torch(preds[0], dtype=torch.float32)
+            # p = ttnn.to_torch(preds[0], dtype=torch.float32)
+            # print(p)
+            # print(preds[0])
+            # print(p.shape)
             print("######################A2")
             te = time.time()
 
             names = load_coco_class_names()
             if self.model_task == "segment":
+                p = ttnn.to_torch(preds[0], dtype=torch.float32)
                 detect1_out, detect2_out, detect3_out = [
                     ttnn.to_torch(tensor, dtype=torch.float32) for tensor in preds[1][0]
                 ]
                 mask = ttnn.to_torch(preds[1][1], dtype=torch.float32)
+                # print("mask",mask)
                 proto = ttnn.to_torch(preds[1][2], dtype=torch.float32)
+                # print("proto",proto)
                 proto = proto.reshape((1, 160, 160, 32)).permute((0, 3, 1, 2))
-                preds[1] = [[detect1_out, detect2_out, detect3_out], mask, proto]
-                results = postprocess(preds, frame_data, torch_frame_data, [["1"]])
-                for i in range(len(results)):
-                    self.save_seg_predictions_by_model(results[i], frame_data, "tt_model")
+                p1 = [[detect1_out, detect2_out, detect3_out], mask, proto]
+                results = postprocess([p, p1], torch_frame_data, original_frame_for_drawing, [["1"]])
+                # print(results)
+                # print(len(results))
+                # for i in range(len(results)):
+                outImage = self.save_seg_predictions_by_model(results[0], original_frame_for_drawing, "tt_model")
+                # print("done saveing")
             else:
-                print("TASK", self.model_task)
+                # print("TASK", self.model_task)
+                p = ttnn.to_torch(preds[0], dtype=torch.float32)
                 # results = obj_postprocess(preds[0], torch_frame_data, frame_data, [1], names)[0]
-                results = obj_postprocess(preds[0], torch_frame_data, original_frame_for_drawing, [["1"]], names)[0]
+                results = obj_postprocess(p, torch_frame_data, original_frame_for_drawing, [["1"]], names)[0]
                 outImage = self.save_yolo_predictions_by_model(results, original_frame_for_drawing, "tt_model")
 
                 # outImage = self.save_yolo_predictions_by_model(results, frame_data, "tt_model")
@@ -194,6 +239,7 @@ class Yolov9c(GstBase.BaseTransform):
             # results = postprocess(out, torch_frame_data, frame_data, names=names)[0]
             # outImage = save_yolo_predictions_by_model(results, model_name="tt_model", orig_image=frame_data)
             outImage = cv2.cvtColor(outImage, cv2.COLOR_BGR2BGRA)
+            # print("imgage",outImage)
 
             inbuf.unmap(in_map_info)
 
@@ -210,6 +256,7 @@ class Yolov9c(GstBase.BaseTransform):
 
             # Corrected line: assign bytes to the memoryview slice
             # This copies the byte data from outImage into the GStreamer buffer's memory
+            # print(out_map_info)
             out_map_info.data[:] = outImage.tobytes()
 
             # Update the output buffer's size to reflect the actual data written

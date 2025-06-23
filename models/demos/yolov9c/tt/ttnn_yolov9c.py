@@ -136,6 +136,7 @@ class TtYOLOv9cConv2D:
             hw = output_height * output_width
             if x.shape[2] != hw:
                 x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+                x = ttnn.reallocate(x)
                 x = x[:, :, :hw, :]
         else:
             self.enable_autopad = True
@@ -253,6 +254,7 @@ class TtnnRepncspelan4:
         x = self.cv1(x)
         if x.is_sharded():
             x = ttnn.sharded_to_interleaved(x, memory_config=ttnn.L1_MEMORY_CONFIG)
+            x = ttnn.reallocate(x)
 
         y1 = x[:, :, :, : x.shape[-1] // 2]
         y2 = x[:, :, :, x.shape[-1] // 2 : x.shape[-1]]
@@ -306,6 +308,7 @@ class TtnnADown:
         )
         if x.is_sharded():
             x = ttnn.sharded_to_interleaved(x, memory_config=ttnn.L1_MEMORY_CONFIG)
+            x = ttnn.reallocate(x)
 
         x1 = x[:, :, :, : x.shape[-1] // 2]
         x2 = x[:, :, :, x.shape[-1] // 2 : x.shape[-1]]
@@ -789,6 +792,8 @@ class YoloV9:
         x22 = x
         x16 = ttnn.reallocate(x16)
         x19 = ttnn.reallocate(x19)
+        x22 = ttnn.reallocate(x22)
+        ttnn.deallocate(x)
         x = self.segment_detect([x16, x19, x22])  # 22
 
         ttnn.deallocate(x16)
