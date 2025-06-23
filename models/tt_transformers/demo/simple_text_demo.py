@@ -5,6 +5,7 @@
 import hashlib
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -545,6 +546,10 @@ def test_demo_text(
     profiler = BenchmarkProfiler()
     profiler.start("run")
 
+    # Start overall timing
+    overall_start_time = time.time()
+    logger.info("=== STARTING TT-TRANSFORMERS TEXT DEMO ===")
+
     logger.info(f"Reading inputs...")
     profiler.start("loading_inputs")
     if len(input_prompts) == 1:  # Manual input
@@ -560,6 +565,8 @@ def test_demo_text(
     for i in range(repeat_batches):
         repeat_batch_prompts.append([input_prompts[(j + i) % len(input_prompts)] for j in range(len(input_prompts))])
 
+    logger.info("Setting up TT model...")
+    model_setup_start = time.time()
     model_args, model, page_table, tt_kv_cache, tokenizer = prepare_generator_args(
         num_devices=num_devices,
         data_parallel=data_parallel,
@@ -571,6 +578,8 @@ def test_demo_text(
         page_params=page_params,
         paged_attention=paged_attention,
     )
+    model_setup_time = time.time() - model_setup_start
+    logger.info(f"Model setup completed in {model_setup_time:.2f} seconds")
 
     for m_args in model_args:
         if m_args.max_context_len < max_seq_len:
@@ -583,6 +592,8 @@ def test_demo_text(
     num_tokens_generated_decode = []
 
     logger.info("Starting inference...")
+    total_inference_start_time = time.time()
+
     for batch_idx, input_prompts in enumerate(repeat_batch_prompts):
         logger.info(f"Processing batch {batch_idx}")
         profiler.start(f"preprocess_prefill_inputs", iteration=batch_idx)
@@ -621,6 +632,7 @@ def test_demo_text(
         input_tokens_prefill_pt = torch.stack(input_tokens_prefill_pt).view(global_batch_size, -1)
 
         logger.info("Starting prefill warmup...")
+        prefill_warmup_start = time.time()
         profiler.start(f"compile_prefill", iteration=batch_idx)
         logits = generator.prefill_forward_text(
             input_tokens_prefill_pt,  # Prefill warmup for all users, in case some users have different seqlens than others
@@ -629,9 +641,11 @@ def test_demo_text(
             prompt_lens=decoding_pos,
         )
         profiler.end(f"compile_prefill", iteration=batch_idx)
-        logger.info("Finished prefill warmup")
+        prefill_warmup_time = time.time() - prefill_warmup_start
+        logger.info(f"Prefill warmup completed in {prefill_warmup_time:.2f} seconds")
 
         logger.info(f"Starting prefill...")
+        prefill_start_time = time.time()
         profiler.start(f"inference_prefill", iteration=batch_idx)
         logits = generator.prefill_forward_text(
             input_tokens_prefill_pt,
@@ -641,7 +655,8 @@ def test_demo_text(
         )
         prefilled_token = torch.argmax(logits, dim=-1)
         profiler.end(f"inference_prefill", iteration=batch_idx)
-        logger.info(f"Prefill finished")
+        prefill_time = time.time() - prefill_start_time
+        logger.info(f"Prefill completed in {prefill_time:.2f} seconds")
 
         # Keep track of generated outputs to print out every iteration
         all_outputs = [encoded_prompts[b][: prefill_lens[b]] for b in range(global_batch_size)]
@@ -670,6 +685,7 @@ def test_demo_text(
         out_tok = prefilled_token
 
         logger.info(f"Starting decode loop...")
+        decode_start_time = time.time()
 
         # Log total inference (accounting for compile_decode as well)
         profiler.start(f"inference_decode", iteration=batch_idx)
@@ -774,12 +790,22 @@ def test_demo_text(
                         )
                 profiler.end(f"log_saving_file", iteration=batch_idx)
 
+        decode_time = time.time() - decode_start_time
+        logger.info(f"Decode loop completed in {decode_time:.2f} seconds")
+        logger.info(f"Generated {iteration} tokens in {decode_time:.2f} seconds")
+        if decode_time > 0:
+            logger.info(f"Average tokens per second: {iteration / decode_time:.2f}")
+
         num_tokens_generated_decode.append(iteration)  # Save the number of tokens generated for each repeat batch
 
     profiler.end(f"inference_decode", iteration=batch_idx)
 
+    total_inference_time = time.time() - total_inference_start_time
+
     # Finish profiling at the end of inference for all repeated batches
     profiler.end("run")
+
+    overall_total_time = time.time() - overall_start_time
 
     # Prepare profile benchmark metrics for the first repeat batch only
     compile_prefill_time = profiler.get_duration("compile_prefill")
@@ -826,6 +852,16 @@ def test_demo_text(
         logger.info(f"Please note that 'stop_at_eos' is disabled. Output repetition is expected.")
 
     logger.info("")
+    logger.info("=" * 80)
+    logger.info("TT-TRANSFORMERS DEMO TIMING SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Model Setup Time: {model_setup_time:.2f} seconds")
+    logger.info(f"Prefill Warmup Time: {prefill_warmup_time:.2f} seconds")
+    logger.info(f"Prefill Inference Time: {prefill_time:.2f} seconds")
+    logger.info(f"Decode Loop Time: {decode_time:.2f} seconds")
+    logger.info(f"Total Inference Time: {total_inference_time:.2f} seconds")
+    logger.info(f"Overall Demo Runtime: {overall_total_time:.2f} seconds")
+    logger.info("=" * 80)
     logger.info(f"=== Performance metrics ===")
     logger.info(
         f"1st token decode time: {tok_1_perf*1000:.2f}ms [{round(1/tok_1_perf, 2)} t/s/u, {round((1/tok_1_perf)*global_batch_size, 2)} t/s]"
@@ -852,6 +888,7 @@ def test_demo_text(
     logger.info(
         f"Average speed: {round(avg_decode_iteration_time * 1000, 2)}ms @ {round(decode_tok_s_user, 2)} tok/s/user ({round(decode_tok_s, 2)} tok/s throughput)"
     )
+    logger.info("=" * 80)
 
     # Benchmark targets
     supported_models = ["Llama3.2-1B", "Llama3.2-3B", "Llama3.1-8B", "Llama3.2-11B", "Llama3.1-70B", "Mistral-7B"]
