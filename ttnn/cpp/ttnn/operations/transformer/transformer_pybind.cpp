@@ -12,6 +12,7 @@
 #include "sdpa/sdpa_pybind.hpp"
 #include "sdpa_config.hpp"
 #include "sdpa_decode/sdpa_decode_pybind.hpp"
+#include "flash_mla_prefill/flash_mla_prefill_pybind.hpp"
 #include "flash_mla_decode/flash_mla_decode_pybind.hpp"
 #include "split_query_key_value_and_split_heads/split_query_key_value_and_split_heads_pybind.hpp"
 
@@ -41,6 +42,7 @@ void py_module(py::module& module) {
 
     py_bind_sdpa(module);
     py_bind_sdpa_decode(module);
+    py_bind_flash_mla_prefill(module);
     py_bind_flash_mla_decode(module);
 }
 

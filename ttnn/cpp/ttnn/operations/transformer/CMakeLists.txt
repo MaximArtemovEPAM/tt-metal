@@ -20,6 +20,11 @@ target_sources(
         flash_mla_decode/device/flash_mla_decode_op.cpp
         flash_mla_decode/device/flash_mla_decode_program_factory.cpp
         flash_mla_decode/flash_mla_decode.cpp
+        flash_mla_prefill/device/joint_flash_mla_prefill_op.cpp
+        flash_mla_prefill/device/joint_flash_mla_prefill_program_factory.cpp
+        flash_mla_prefill/device/flash_mla_prefill_op.cpp
+        flash_mla_prefill/device/flash_mla_prefill_program_factory.cpp
+        flash_mla_prefill/flash_mla_prefill.cpp
         split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.cpp
 )
 
