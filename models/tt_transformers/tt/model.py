@@ -39,6 +39,23 @@ class Transformer(LightweightModule):
         self.grid_size = self.args.max_grid_size
         state_dict_prefix = args.get_state_dict_prefix("", None)
 
+        self.compute_grid_size = mesh_device.compute_with_storage_grid_size()
+        self.ccl_sub_device_crs = ttnn.CoreRangeSet(
+            {
+                ttnn.CoreRange(
+                    ttnn.CoreCoord(0, 0), ttnn.CoreCoord(self.compute_grid_size.x - 1, self.compute_grid_size.y - 1)
+                )
+            }
+        )
+
+        self.worker_sub_device_id = ttnn.SubDeviceId(0)
+
+        self.worker_sub_device = ttnn.SubDevice([self.ccl_sub_device_crs])
+        self.sub_device_stall_group = [self.worker_sub_device_id]
+        self.sub_device_manager = mesh_device.create_sub_device_manager([self.worker_sub_device], 0)
+        self.mesh_device.load_sub_device_manager(self.sub_device_manager)
+        self.mesh_device.set_sub_device_stall_group(self.sub_device_stall_group)
+
         self.embd = Embedding(
             mesh_device=mesh_device,
             args=args,
@@ -328,7 +345,26 @@ class Transformer(LightweightModule):
                     topology=self.args.ccl_topology(),
                 )
             else:
-                tt_logits = ttnn.all_gather(tt_logits, dim=3, num_links=1, topology=self.args.ccl_topology())
+                # tt_logits = ttnn.all_gather(tt_logits, dim=3, num_links=1, topology=self.args.ccl_topology())
+                compute_grid_size = self.mesh_device.compute_with_storage_grid_size()
+                ccl_sub_device_crs = ttnn.CoreRangeSet(
+                    {
+                        ttnn.CoreRange(
+                            ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1)
+                        )
+                    }
+                )
+                multi_device_global_semaphore = ttnn.create_global_semaphore(self.mesh_device, ccl_sub_device_crs, 0)
+                tt_logits = ttnn.experimental.all_gather_async(
+                    tt_logits,
+                    dim=3,
+                    # memory_config=input_mem_cfg,
+                    num_links=1,
+                    topology=self.args.ccl_topology(),
+                    multi_device_global_semaphore=multi_device_global_semaphore,
+                    subdevice_id=ttnn.SubDeviceId(0),
+                )
+                ttnn.synchronize_device(self.mesh_device, sub_device_ids=[ttnn.SubDeviceId(0)])
         tt_logits = ttnn.untilize(tt_logits, use_multicore=True)
 
         if argmax_on_device:

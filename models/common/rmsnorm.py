@@ -56,6 +56,8 @@ class RMSNorm(LightweightModule):
         self.is_distributed = is_distributed
         self.ccl_topology = ccl_topology
 
+        self.device = device
+
         if state_dict_prefix:
             weight_name = f"{state_dict_prefix}{weight_key}.weight"
         else:
@@ -143,13 +145,30 @@ class RMSNorm(LightweightModule):
         # Run distributed rmsnorm part 1
         tt_stats = ttnn.rms_norm_pre_all_gather(inp, compute_kernel_config=compute_kernel_config, dtype=ttnn.bfloat16)
         # AllGather stats
-        tt_stats = ttnn.all_gather(
+        # TODO: (GR) QwQ E2E
+        # tt_stats = ttnn.all_gather(
+        #     tt_stats,
+        #     dim=3,
+        #     num_links=1,
+        #     topology=self.ccl_topology,
+        #     memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        # )
+        compute_grid_size = self.device.compute_with_storage_grid_size()
+        ccl_sub_device_crs = ttnn.CoreRangeSet(
+            {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1))}
+        )
+        multi_device_global_semaphore = ttnn.create_global_semaphore(self.device, ccl_sub_device_crs, 0)
+        tt_stats = ttnn.experimental.all_gather_async(
             tt_stats,
             dim=3,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
             num_links=1,
             topology=self.ccl_topology,
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            multi_device_global_semaphore=multi_device_global_semaphore,
+            subdevice_id=ttnn.SubDeviceId(0),
         )
+        ttnn.synchronize_device(self.device, sub_device_ids=[ttnn.SubDeviceId(0)])
+
         # Run distributed rmsnorm part 2
         tt_out = ttnn.rms_norm_post_all_gather(
             inp,

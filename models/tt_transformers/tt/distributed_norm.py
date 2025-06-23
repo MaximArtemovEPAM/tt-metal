@@ -70,7 +70,22 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm already performs a gather
         if self.args.is_multichip and not self.args.is_distributed_norm(mode):
-            x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology(), memory_config=input_mem_cfg)
+            # x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology(), memory_config=input_mem_cfg)
+            compute_grid_size = self.args.mesh_device.compute_with_storage_grid_size()
+            ccl_sub_device_crs = ttnn.CoreRangeSet(
+                {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1))}
+            )
+            multi_device_global_semaphore = ttnn.create_global_semaphore(self.args.mesh_device, ccl_sub_device_crs, 0)
+            x = ttnn.experimental.all_gather_async(
+                x,
+                dim=3,
+                memory_config=input_mem_cfg,
+                num_links=1,
+                topology=self.args.ccl_topology(),
+                multi_device_global_semaphore=multi_device_global_semaphore,
+                subdevice_id=ttnn.SubDeviceId(0),
+            )
+            ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[ttnn.SubDeviceId(0)])
         else:
             x = ttnn.to_memory_config(x, input_mem_cfg)
 
@@ -78,6 +93,22 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm requires a gather
         if self.args.is_distributed_norm(mode):
-            x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology())
+            # x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology())
+
+            compute_grid_size = self.args.mesh_device.compute_with_storage_grid_size()
+            ccl_sub_device_crs = ttnn.CoreRangeSet(
+                {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1))}
+            )
+            multi_device_global_semaphore = ttnn.create_global_semaphore(self.args.mesh_device, ccl_sub_device_crs, 0)
+            x = ttnn.experimental.all_gather_async(
+                x,
+                dim=3,
+                # memory_config=input_mem_cfg,
+                num_links=1,
+                topology=self.args.ccl_topology(),
+                multi_device_global_semaphore=multi_device_global_semaphore,
+                subdevice_id=ttnn.SubDeviceId(0),
+            )
+            ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[ttnn.SubDeviceId(0)])
 
         return x

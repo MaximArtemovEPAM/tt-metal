@@ -36,14 +36,34 @@ def tt_all_reduce(
             input_tensor_sharded = input_tensor
             input_tensor = ttnn.sharded_to_interleaved(input_tensor_sharded, ttnn.L1_MEMORY_CONFIG)
             input_tensor_sharded.deallocate(True)
-        reduced = ttnn.reduce_scatter(
+
+        # reduced = ttnn.reduce_scatter(
+        #     input_tensor,
+        #     dim=dim,
+        #     math_op=ttnn.ReduceType.Sum,
+        #     num_links=num_reduce_scatter_links,
+        #     topology=topology,
+        #     memory_config=memory_config,
+        # )
+        compute_grid_size = mesh_device.compute_with_storage_grid_size()
+        ccl_sub_device_crs = ttnn.CoreRangeSet(
+            {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1))}
+        )
+        from_remote_multi_device_global_semaphore = ttnn.create_global_semaphore(mesh_device, ccl_sub_device_crs, 0)
+        to_remote_multi_device_global_semaphore = ttnn.create_global_semaphore(mesh_device, ccl_sub_device_crs, 0)
+        reduced = ttnn.experimental.reduce_scatter_async(
             input_tensor,
             dim=dim,
+            from_remote_multi_device_global_semaphore=from_remote_multi_device_global_semaphore,
+            to_remote_multi_device_global_semaphore=to_remote_multi_device_global_semaphore,
             math_op=ttnn.ReduceType.Sum,
             num_links=num_reduce_scatter_links,
-            topology=topology,
             memory_config=memory_config,
+            topology=topology,
+            subdevice_id=ttnn.SubDeviceId(0),
         )
+        ttnn.synchronize_device(mesh_device, sub_device_ids=[ttnn.SubDeviceId(0)])
+
         input_tensor.deallocate(True)
         return reduced
 
