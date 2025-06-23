@@ -20,11 +20,18 @@ set(MATMUL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multicore_reuse/matmul_multicore_reuse.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_single_core/matmul_single_core.cpp
 )
+set(MATMUL_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multi_core/matmul_multi_core.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_multicore_reuse/matmul_multicore_reuse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul_single_core/matmul_single_core.cpp
+)
 
 add_compile_definitions(OVERRIDE_KERNEL_PREFIX="tt_metal/programming_examples/")
 include(${PROJECT_SOURCE_DIR}/cmake/helper_functions.cmake)
 
 CREATE_PGM_EXAMPLES_EXE("${PROGRAMMING_EXAMPLES_SRCS}" "") # no subdir, output binaries straight to build/programming_examples
+
+CREATE_PGM_EXAMPLES_EXE("${MATMUL_SRCS}" "" "matmul")
 
 CREATE_PGM_EXAMPLES_EXE("${MATMUL_SRCS}" "" "matmul")
 
@@ -44,6 +51,7 @@ install(
         add_2_integers_in_compute
         add_2_integers_in_riscv
         contributed
+        contributed
         eltwise_binary
         eltwise_sfpu
         hello_world_compute_kernel
@@ -54,6 +62,9 @@ install(
         pad_multi_core
         shard_data_rm
     # DESTINATION ${CMAKE_INSTALL_DOCDIR}/examples
+    # FIXME(afuller): Something funky is happening when installing files into
+    # /usr/share/doc on a default Docker image. Speculation: some dependency for
+    # magic doc handling is missing. For now keep it out of 'doc'.
     # FIXME(afuller): Something funky is happening when installing files into
     # /usr/share/doc on a default Docker image. Speculation: some dependency for
     # magic doc handling is missing. For now keep it out of 'doc'.
@@ -68,6 +79,7 @@ install(
     DIRECTORY
         add_2_integers_in_compute
         add_2_integers_in_riscv
+        contributed
         contributed
         eltwise_binary
         eltwise_sfpu
