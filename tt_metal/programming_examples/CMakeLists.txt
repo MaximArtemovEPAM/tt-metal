@@ -28,8 +28,6 @@ CREATE_PGM_EXAMPLES_EXE("${PROGRAMMING_EXAMPLES_SRCS}" "") # no subdir, output b
 
 CREATE_PGM_EXAMPLES_EXE("${MATMUL_SRCS}" "" "matmul")
 
-CREATE_PGM_EXAMPLES_EXE("${MATMUL_SRCS}" "" "matmul")
-
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/profiler)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/contributed)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/distributed)
