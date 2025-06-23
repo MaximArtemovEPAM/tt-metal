@@ -2,6 +2,7 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
+import time
 import pytest
 import torch
 from tqdm import tqdm
@@ -303,6 +304,8 @@ def run_demo_inference(
     latent_model_input = ttnn.clone(latents)
 
     # Compile run of Scheduler and UNet
+    logger.info("Performing warmup run, to make use of program caching in actual inference...")
+    logger.info("Warmup run of Unet")
     run_tt_iteration(
         ttnn_device,
         tt_unet,
@@ -314,13 +317,37 @@ def run_demo_inference(
         ttnn_timesteps[0],
         0,
     )
+    if vae_on_device:
+        logger.info("Warmup run of VAE")
+        latent_model_input_2 = ttnn.clone(latents)
+        tt_vae.forward(latent_model_input_2, [B, C, H, W])
+    logger.info("Warmup run of Scheduler")
+    latent_model_input_3 = ttnn.clone(latents)
+    tt_scheduler.step(
+        latent_model_input_3, tt_scheduler.timesteps[0], latent_model_input_3, **extra_step_kwargs, return_dict=False
+    )
+    logger.info("Warmup run of random")
+
+    # latent adding
+    latent_model_input_3 = latent_model_input_3 + guidance_scale * (latent_model_input_3 - latent_model_input_3)
+
+    # move
+    latent_model_input_3 = ttnn.move(latent_model_input_3)
+    # vae div
+    latent_model_input_3 = ttnn.div(latent_model_input_3, scaling_factor)
+    ttnn.deallocate(latent_model_input_3)
+    logger.info("Done with warmup run")
+    tt_scheduler.set_step_index(0)
+
     if not is_ci_env and not os.path.exists("output"):
         os.mkdir("output")
 
     images = []
     logger.info("Starting ttnn inference...")
+
     for iter in range(len(prompts)):
         logger.info(f"Running inference for prompt {iter + 1}/{len(prompts)}: {prompts[iter]}")
+        start = time.time()
         for i, t in tqdm(enumerate(ttnn_timesteps), total=len(ttnn_timesteps)):
             unet_outputs = []
             for unet_slice in range(len(ttnn_prompt_embeds[iter])):
@@ -357,14 +384,20 @@ def run_demo_inference(
             ttnn.deallocate(noise_pred)
             latents = ttnn.move(latents)
 
+        ttnn.synchronize_device(ttnn_device)
+        end = time.time()
+        logger.info(f"50 unet loop took: {end - start:.2f} seconds")
         tt_scheduler.set_step_index(0)
 
         if vae_on_device:
+            logger.info("Running TT VAE")
+            start = time.time()
             latents = ttnn.div(latents, scaling_factor)
 
-            logger.info("Running TT VAE")
             image = tt_vae.forward(latents, [B, C, H, W])
-            ttnn_device.enable_program_cache()
+            ttnn.synchronize_device(ttnn_device)
+            end = time.time()
+            logger.info(f"TT VAE took: {end - start:.2f} seconds")
         else:
             latents = ttnn.from_device(latents).to_torch()
             latents = latents.reshape(B, H, W, C)
