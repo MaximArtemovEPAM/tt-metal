@@ -103,10 +103,13 @@ void kernel_main() {
     // Runtime args
     const uint32_t value_tensor_buffer_addr = get_arg_val<uint32_t>(0);
     const uint32_t core_loop_count = get_arg_val<uint32_t>(1);
-    const uint32_t this_core_x = get_arg_val<uint32_t>(2);
-    const uint32_t this_core_y = get_arg_val<uint32_t>(3);
-    const uint32_t other_core_x = get_arg_val<uint32_t>(4);
-    const uint32_t other_core_y = get_arg_val<uint32_t>(5);
+    const uint32_t logical_core_id = get_arg_val<uint32_t>(2);
+    const uint32_t this_core_x = get_arg_val<uint32_t>(3);
+    const uint32_t this_core_y = get_arg_val<uint32_t>(4);
+    const uint32_t other_core0_x = get_arg_val<uint32_t>(5);
+    const uint32_t other_core0_y = get_arg_val<uint32_t>(6);
+    const uint32_t other_core1_x = get_arg_val<uint32_t>(7);
+    const uint32_t other_core1_y = get_arg_val<uint32_t>(8);
 
     // Compile time args
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(0);
@@ -121,15 +124,18 @@ void kernel_main() {
     constexpr uint32_t Ht = get_compile_time_arg_val(8);
     constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(9);
     constexpr uint32_t num_cores_y = get_compile_time_arg_val(10);
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(11);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(12);
-    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(13));
+    constexpr uint32_t intercore_stages = get_compile_time_arg_val(11);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(12);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(13);
+    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(14));
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
 
-    const uint32_t other_core_id =
-        compute_core_id(other_core_x, other_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
+    const uint32_t other_core0_id = compute_core_id(
+        other_core0_x, other_core0_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
+    const uint32_t other_core1_id = compute_core_id(
+        other_core1_x, other_core1_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
 
     // Output tensor config
     constexpr uint32_t one_tile = 1;
@@ -143,11 +149,11 @@ void kernel_main() {
     const uint32_t w_start = get_absolute_logical_x() * Wt_per_core;
 
     DPRINT << TERM_WRITER << "[Writer] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core << ", w_start = " << w_start
-           << ", this core = {" << this_core_x << ", " << this_core_y << "} (id =" << this_core_id << ")" << TERM_RESET
-           << ENDL();
+           << ", this core = {" << this_core_x << ", " << this_core_y << "} (id =" << this_core_id << ")"
+           << ", intercore stages = " << intercore_stages << TERM_RESET << ENDL();
 
-    DPRINT << TERM_WRITER << "[Writer] other core = {" << other_core_x << ", " << other_core_y
-           << "} (id = " << other_core_id << ")" << TERM_RESET << ENDL();
+    // DPRINT << TERM_WRITER << "[Writer] other core = {" << other_core0_x << ", " << other_core0_y
+    //        << "} (id = " << other_core0_id << ")" << TERM_RESET << ENDL();
 
     // Move data from L1 to DRAMs
     for (uint32_t core_loop = 0; core_loop < core_loop_count; core_loop++) {
@@ -156,8 +162,9 @@ void kernel_main() {
         //                    get_absolute_logical_y() * compute_with_storage_grid_size_x + get_absolute_logical_x();
         const uint32_t h = core_loop * num_cores_y + get_absolute_logical_y();
 
-        DPRINT << TERM_WRITER << "[Writer] index tile data format = " << (uint32_t)get_dataformat(index_tensor_cb_index)
-               << TERM_RESET << ENDL();
+        // DPRINT << TERM_WRITER << "[Writer] index tile data format = " <<
+        // (uint32_t)get_dataformat(index_tensor_cb_index)
+        //        << TERM_RESET << ENDL();
 
         // Generate index tiles
         for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
@@ -168,64 +175,88 @@ void kernel_main() {
         const uint32_t value_tensor_other_tile_size_bytes = get_tile_size(value_tensor_other_cb_index);
 
         // uint32_t stages = ilog2(Wt / Wt_per_core);
-        uint32_t stages = 2;
-        for (uint32_t stage = 2; stage <= stages; stage++) {
-            // This will synchronize with compute kernel, as well as with peer core
-            // At this point, compute kernel has completed its sorting, we read its data and write
-            // it to the remote peer core
-            // Conversely, the peer core will write its data to a tile (in input_other_cb_index)
-            // Once we have received it (after noc_exchange_tiles()), we send the data to the compute
-            // core
-            // In this case, we only use input_tensor_transposed_cb_index to synchronize with compute kernel,
-            // we do not overwrite its data
-            uint64_t sem_value_other_noc_addr = get_noc_addr(other_core_x, other_core_y, sem_value_addr);
-            uint64_t sem_value_noc_addr = get_noc_addr(this_core_x, this_core_y, sem_value_addr);  // only debug
+        for (uint32_t core_stage = 1; core_stage <= intercore_stages; core_stage++) {
+            for (uint32_t sub = core_stage; sub > 0; sub--) {
+                uint32_t sub_dist = 1 << (sub - 1);
 
-            // Wait for Compute for complete
-            // Use sync_with_writer_cb as barrier
-            DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
-            cb_wait_front(sync_with_writer_cb_index, one_tile);
-            cb_pop_front(sync_with_writer_cb_index, one_tile);
-            DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
+                // DPRINT << TERM_WRITER << "[Writer] stage #" << core_stage << "/" << intercore_stages << ", core sub =
+                // " << sub << TERM_RESET << ENDL();
 
-            // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
+                uint32_t other_core_logical_id = 0 ^ sub_dist;  // TODO: Replace 0 with this_core_logical_id and use LUT
 
-            for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
-                cb_wait_front(input_tensor_transposed_cb_index, one_tile);
-                const uint32_t l1_read_ptr = get_read_ptr(input_tensor_transposed_cb_index);
+                uint32_t other_core_x = other_core0_x;
+                uint32_t other_core_y = other_core0_y;
+                uint32_t other_core_id = other_core0_id;
 
-                cb_reserve_back(value_tensor_other_cb_index, one_tile);
-                uint32_t input_other_cb_write_addr = get_write_ptr(value_tensor_other_cb_index);
-                uint64_t input_other_noc_addr = get_noc_addr(other_core_x, other_core_y, input_other_cb_write_addr);
+                // Non modular version: assumes only 2 inter-core stages (i.e. 4 cores per row) and hardcoded values
+                // TODO: Make it generic
+                if (other_core_logical_id == 2) {
+                    other_core_x = other_core1_x;
+                    other_core_y = other_core1_y;
+                    other_core_id = other_core1_id;
+                }
 
-                DPRINT << TERM_WRITER << "[Writer] exchanging tile #" << (w - w_start) << "/" << Wt_per_core << " with "
-                       << other_core_id << " (self = " << this_core_id << ")"
-                       << ", sem_self = " << sem_value_noc_addr << " (" << sem_value_addr
-                       << "), sem_other_noc = " << sem_value_other_noc_addr << TERM_RESET << ENDL();
-                sort_noc_exchange_tiles(
-                    this_core_id,
-                    other_core_id,
-                    sem_self_value_other_ptr,
-                    sem_value_other_noc_addr,
-                    l1_read_ptr,
-                    input_other_noc_addr,
-                    value_tensor_other_tile_size_bytes);
+                // This will synchronize with compute kernel, as well as with peer core
+                // At this point, compute kernel has completed its sorting, we read its data and write
+                // it to the remote peer core
+                // Conversely, the peer core will write its data to a tile (in input_other_cb_index)
+                // Once we have received it (after noc_exchange_tiles()), we send the data to the compute
+                // core
+                // In this case, we only use input_tensor_transposed_cb_index to synchronize with compute kernel,
+                // we do not overwrite its data
+                uint64_t sem_value_other_noc_addr = get_noc_addr(other_core_x, other_core_y, sem_value_addr);
+                uint64_t sem_value_noc_addr = get_noc_addr(this_core_x, this_core_y, sem_value_addr);  // only debug
 
-                constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
+                // Wait for Compute for complete
+                // Use sync_with_writer_cb as barrier
+                // DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
+                cb_wait_front(sync_with_writer_cb_index, one_tile);
+                cb_pop_front(sync_with_writer_cb_index, one_tile);
+                // DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
 
-                DPRINT << TERM_WRITER
-                       << "[Writer] sending other tile back to compute, other_cb = " << value_tensor_other_cb_index
-                       << TERM_RESET << ENDL();
-                DPRINT << TERM_WRITER << "[Writer] tile [" << w << "] = " << TERM_RESET << ENDL();
-                print_row_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr), DEBUG_PRINT_LEN);
+                // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] stage #" << core_stage << ", sub = " << sub_dist << ", "
+                       << this_core_id << " -> " << other_core_id << TERM_RESET << ENDL();
 
-                cb_push_back(value_tensor_other_cb_index, one_tile);
+                for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
+                    cb_wait_front(input_tensor_transposed_cb_index, one_tile);
+                    const uint32_t l1_read_ptr = get_read_ptr(input_tensor_transposed_cb_index);
 
-                cb_pop_front(input_tensor_transposed_cb_index, one_tile);
-            }  // Wt loop
-        }
+                    cb_reserve_back(value_tensor_other_cb_index, one_tile);  // TOFIX: Deadlock
+                    uint32_t input_other_cb_write_addr = get_write_ptr(value_tensor_other_cb_index);
+                    uint64_t input_other_noc_addr = get_noc_addr(other_core_x, other_core_y, input_other_cb_write_addr);
 
-        DPRINT << TERM_WRITER << "[Writer] exchange complete" << TERM_RESET << ENDL();
+                    // DPRINT << TERM_WRITER << "[Writer] exchanging tile #" << (w - w_start) << "/" << Wt_per_core << "
+                    // with "
+                    //        << other_core_id << " (self = " << this_core_id << ")"
+                    //        << ", sem_self = " << sem_value_noc_addr << " (" << sem_value_addr
+                    //        << "), sem_other_noc = " << sem_value_other_noc_addr << TERM_RESET << ENDL();
+                    sort_noc_exchange_tiles(
+                        this_core_id,
+                        other_core_id,
+                        sem_self_value_other_ptr,
+                        sem_value_other_noc_addr,
+                        l1_read_ptr,
+                        input_other_noc_addr,
+                        value_tensor_other_tile_size_bytes);
+
+                    constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
+
+                    // DPRINT << TERM_WRITER
+                    //        << "[Writer] sending other tile back to compute, other_cb = " <<
+                    //        value_tensor_other_cb_index
+                    //        << TERM_RESET << ENDL();
+                    // DPRINT << TERM_WRITER << "[Writer] tile [" << w << "] = " << TERM_RESET << ENDL();
+                    // print_row_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr), DEBUG_PRINT_LEN);
+
+                    cb_push_back(value_tensor_other_cb_index, one_tile);
+
+                    cb_pop_front(input_tensor_transposed_cb_index, one_tile);
+                }  // Wt loop
+            }  // core_stage
+        }  // intercore_stages
+
+        // DPRINT << TERM_WRITER << "[Writer] exchange complete" << TERM_RESET << ENDL();
         // Sort is compolete, we read final results from value_tensor_cb_index
         // Write value tensor to DRAM
         for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {

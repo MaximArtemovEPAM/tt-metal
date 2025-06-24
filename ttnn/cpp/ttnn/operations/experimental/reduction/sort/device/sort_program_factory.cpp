@@ -12,6 +12,8 @@
 
 namespace ttnn::operations::experimental::reduction::sort::program {
 
+constexpr uint32_t ilog2(uint32_t n) { return 31 - std::countl_zero(n); }
+
 // Single row - single core
 SortProgramFactorySingleRowSingleCore::cached_program_t SortProgramFactorySingleRowSingleCore::create(
     const operation_attributes_t& attributes, const tensor_args_t& tensor_args, tensor_return_value_t& output_tensors) {
@@ -670,15 +672,19 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
      * objects depending on the configuration.
      */
     CoreRangeSet core_range;
+    const uint32_t CORE_COUNT = 4;
+    const uint32_t Wt_per_core = Wt / CORE_COUNT;
+    const uint32_t num_cores_y = 1;
+    const uint32_t intercore_stages = ilog2(CORE_COUNT);
+
+    std::cout << "Intercore stages = " << intercore_stages << std::endl;
+
     if (Wt > 1) {
-        core_range = CoreRangeSet(CoreRange(CoreCoord(0, 0), CoreCoord(1, 0)));  // only use two cores for now
+        core_range =
+            CoreRangeSet(CoreRange(CoreCoord(0, 0), CoreCoord(CORE_COUNT - 1, 0)));  // only use two cores for now
     } else {
         core_range = CoreRangeSet(CoreCoord(0, 0));
     }
-
-    const uint32_t CORE_COUNT = 2;
-    const uint32_t Wt_per_core = Wt / CORE_COUNT;
-    const uint32_t num_cores_y = 1;
 
     // if (Ht >= total_number_of_cores) {
     //     core_range = CoreRangeSet(
@@ -803,6 +809,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         Ht,
         total_number_of_cores,
         num_cores_y,
+        intercore_stages,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
         sem_index_id};
@@ -831,6 +838,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         Ht,
         total_number_of_cores,
         num_cores_y,
+        intercore_stages,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
         sem_value_id};
@@ -859,6 +867,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         sync_packer_with_unpacker_cb_index,
         Wt,
         Wt_per_core,
+        intercore_stages,
         static_cast<uint32_t>(attributes.descending),
         static_cast<uint32_t>(attributes.stable),
         compute_with_storage_grid_size.x,
@@ -880,63 +889,57 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     // const CoreCoord other_core = {1, 0};
 
     std::cout << "loop count = " << all_core_utilization_loop_count << std::endl;
-    // For 2 cores
-    const CoreCoord core0 = {0, 0};
-    const CoreCoord core1 = {1, 0};
-    const CoreCoord physical_coord_core0 = device->worker_core_from_logical_core(core0);
-    const CoreCoord physical_coord_core1 = device->worker_core_from_logical_core(core1);
+    // For 4 cores
+    // TODO: Refactor as array
+    const CoreCoord cores[CORE_COUNT] = {{0, 0}, {1, 0}, {2, 0}, {3, 0}};
+    CoreCoord physical_coords[CORE_COUNT];
+    for (uint32_t i = 0; i < CORE_COUNT; i++) {
+        physical_coords[i] = device->worker_core_from_logical_core(cores[i]);
+    }
     uint32_t loop_count = 0;
 
     constexpr uint32_t PHYSICAL_GRID_SIZE_Y = 32;
-    {  // core 0
-        SetRuntimeArgs(
-            program,
-            reader_kernel_id,
-            core0,
-            {input_buffer->address(),
-             index_buffer->address(),
-             all_core_utilization_loop_count,
-             physical_coord_core0.x,
-             physical_coord_core0.y,
-             physical_coord_core1.x,
-             physical_coord_core1.y});
-        SetRuntimeArgs(
-            program,
-            writer_kernel_id,
-            core0,
-            {value_buffer->address(),
-             all_core_utilization_loop_count,
-             physical_coord_core0.x,
-             physical_coord_core0.y,
-             physical_coord_core1.x,
-             physical_coord_core1.y});
-        SetRuntimeArgs(program, compute_kernel_id, core0, {all_core_utilization_loop_count, true});
-    }
 
-    {  // core 1
+    for (uint32_t core_id = 0; core_id < CORE_COUNT; core_id++) {
+        if (core_id >= 2 && CORE_COUNT <= 2) {
+            break;
+        }
+
+        // Determine peer cores for this core
+        uint32_t stage1_peer = core_id ^ 1;
+        uint32_t stage2_peer = core_id ^ 2;
+
+        uint32_t logical_core_id = core_id;
+
         SetRuntimeArgs(
             program,
             reader_kernel_id,
-            core1,
+            cores[core_id],
             {input_buffer->address(),
              index_buffer->address(),
              all_core_utilization_loop_count,
-             physical_coord_core1.x,
-             physical_coord_core1.y,
-             physical_coord_core0.x,
-             physical_coord_core0.y});
+             logical_core_id,
+             physical_coords[core_id].x,
+             physical_coords[core_id].y,
+             physical_coords[stage1_peer].x,
+             physical_coords[stage1_peer].y,
+             physical_coords[stage2_peer].x,
+             physical_coords[stage2_peer].y});
         SetRuntimeArgs(
             program,
             writer_kernel_id,
-            core1,
+            cores[core_id],
             {value_buffer->address(),
              all_core_utilization_loop_count,
-             physical_coord_core1.x,
-             physical_coord_core1.y,
-             physical_coord_core0.x,
-             physical_coord_core0.y});
-        SetRuntimeArgs(program, compute_kernel_id, core1, {all_core_utilization_loop_count, false});
-    }
+             logical_core_id,
+             physical_coords[core_id].x,
+             physical_coords[core_id].y,
+             physical_coords[stage1_peer].x,
+             physical_coords[stage1_peer].y,
+             physical_coords[stage2_peer].x,
+             physical_coords[stage2_peer].y});
+        SetRuntimeArgs(program, compute_kernel_id, cores[core_id], {all_core_utilization_loop_count, logical_core_id});
+    }  // CORE_COUNT
 
     // TODO: For now, fix number of cores to 2 (TT_THROW if too much data)
     // if (all_core_utilization_loop_residuum != 0 && all_core_utilization_loop_count != 0) {
