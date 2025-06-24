@@ -54,6 +54,9 @@ class TransformerBlock(LightweightModule):
             configuration=args,
             paged_attention_config=paged_attention_config,
             use_paged_kv_cache=use_paged_kv_cache,
+            from_remote_semaphore_handles=from_remote_semaphore_handles,
+            to_remote_semaphore_handles=to_remote_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
         self.feed_forward = MLP(
             mesh_device=mesh_device,

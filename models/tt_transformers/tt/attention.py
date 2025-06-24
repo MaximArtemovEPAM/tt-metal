@@ -25,6 +25,9 @@ class Attention(LightweightModule):
         configuration,
         paged_attention_config=None,
         use_paged_kv_cache=False,
+        from_remote_semaphore_handles=None,
+        to_remote_semaphore_handles=None,
+        worker_sub_device_id=None,
     ):
         super().__init__()
 
@@ -50,6 +53,10 @@ class Attention(LightweightModule):
         self.batch_size_per_device_group = (
             max(self.max_batch_size // self.num_device_groups, 1) if self.TG else self.max_batch_size
         )
+
+        self.from_remote_semaphore_handles = (from_remote_semaphore_handles,)
+        self.to_remote_semaphore_handles = (to_remote_semaphore_handles,)
+        self.worker_sub_device_id = (worker_sub_device_id,)
 
         self.n_local_heads = self.n_heads // self.num_devices_per_group
         self.n_local_kv_heads = self.n_kv_heads // self.num_devices_per_group
@@ -535,16 +542,54 @@ class Attention(LightweightModule):
                 attn_output_cat, self.model_config["ATTN_ALL_GATHER_MATMUL_OUTPUT_MEMCFG"]
             )
             print("all_gather_matmul 537 attention.py")
-            _, dense_out_sharded, _ = ttnn.experimental.all_gather_matmul(
+            # _, dense_out_sharded, _ = ttnn.experimental.all_gather_matmul(
+            #     attn_output_cat,
+            #     self.wo,
+            #     dim=3,
+            #     all_gather_core_grid_offset=(0, 4),
+            #     num_links=1,
+            #     program_config=self.model_config["ATTN_ALL_GATHER_MATMUL_PROGCFG"],
+            #     compute_kernel_config=self.li_o_decode_compute_kernel_cfg,
+            #     memory_config_ag=self.model_config["ATTN_ALL_GATHER_MATMUL_OUTPUT_MEMCFG"],
+            #     memory_config_mm=self.model_config["DECODE_RESIDUAL_MEMCFG"],
+            # )
+            # ag_input_dtype = attn_output.dtype()
+            # persistent_intermediate_buffers = [
+            #     ttnn.from_torch(
+            #         torch.zeros(x),
+            #         device=mesh_device,
+            #         layout=ttnn.TILE_LAYOUT,
+            #         dtype=ag_input_dtype,
+            #         memory_config=mem_config_ag,
+            #         mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+            #     )
+            #     for _ in range(num_iters)
+            # ]
+            # persistent_output_buffers = [
+            #     ttnn.from_torch(
+            #         torch.zeros(ag_output_shape),
+            #         device=mesh_device,
+            #         layout=ttnn.TILE_LAYOUT,
+            #         dtype=ag_input_dtype,
+            #         memory_config=mem_config_ag,
+            #         mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+            #     )
+            tt_all_gather_out_tensor, dense_out_sharded = ttnn.experimental.all_gather_matmul_async(
                 attn_output_cat,
                 self.wo,
+                # persistent_intermediate_buffer=persistent_intermediate_buffers[i],
+                # persistent_output_buffer=persistent_output_buffers[i],
                 dim=3,
+                multi_device_global_semaphore=self.from_remote_semaphore_handles,
                 all_gather_core_grid_offset=(0, 4),
+                # bias=bias_tt,
                 num_links=1,
-                program_config=self.model_config["ATTN_ALL_GATHER_MATMUL_PROGCFG"],
-                compute_kernel_config=self.li_o_decode_compute_kernel_cfg,
                 memory_config_ag=self.model_config["ATTN_ALL_GATHER_MATMUL_OUTPUT_MEMCFG"],
                 memory_config_mm=self.model_config["DECODE_RESIDUAL_MEMCFG"],
+                # topology=all_gather_topology,
+                subdevice_id=self.worker_sub_device_id,
+                program_config=self.model_config["ATTN_ALL_GATHER_MATMUL_PROGCFG"],
+                compute_kernel_config=self.li_o_decode_compute_kernel_cfg,
             )
             ttnn.deallocate(attn_output_cat)
             dense_out_sharded = ttnn.to_memory_config(dense_out_sharded, self.model_config["DECODE_RESIDUAL_MEMCFG"])
