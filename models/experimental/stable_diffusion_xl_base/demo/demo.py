@@ -85,6 +85,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
 
     cpu_device = "cpu"
 
+    neg_prompt = "normal quality, low quality, worst quality, low res, blurry, nsfw, nude"
     all_embeds = [
         pipeline.encode_prompt(
             prompt=prompt,
@@ -92,7 +93,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
             device=cpu_device,
             num_images_per_prompt=1,
             do_classifier_free_guidance=True,
-            negative_prompt=None,
+            negative_prompt=neg_prompt,
             negative_prompt_2=None,
             prompt_embeds=None,
             negative_prompt_embeds=None,
@@ -113,6 +114,8 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
 
     # Prepare timesteps
     timesteps, num_inference_steps = retrieve_timesteps(pipeline.scheduler, num_inference_steps, cpu_device, None, None)
+
+    print("Negative prompt embeds: ", negative_prompt_embeds)
 
     # Convert timesteps to ttnn
     ttnn_timesteps = []
@@ -291,6 +294,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
         for idx, img in enumerate(imgs):
             if iter == len(prompts) // batch_size - 1 and idx >= batch_size - needed_padding:
                 break
+
             img = img.unsqueeze(0)
             img = pipeline.image_processor.postprocess(img, output_type="pil")[0]
             images.append(img)
