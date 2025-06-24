@@ -63,7 +63,8 @@ namespace tt::tt_fabric {
  * @param is_receiver_channel_serviced Output parameter for receiver channel service flags
  */
 void configure_risc_settings(
-    uint32_t risc_id,
+    size_t num_riscv_cores,
+    size_t risc_id,
     tt::ARCH arch,
     bool& enable_handshake,
     bool& enable_context_switch,
@@ -78,23 +79,31 @@ void configure_risc_settings(
         is_sender_channel_serviced.fill(true);
         is_receiver_channel_serviced.fill(true);
     } else if (arch == tt::ARCH::BLACKHOLE) {
-        // Blackhole: Distribute sender/receiver across two RISC cores
-        if (risc_id == 0) {
-            // ERISC0: Handle sender channels only
+        if (num_riscv_cores == 1) {
             enable_handshake = true;
-            enable_context_switch = true;
-            enable_interrupts = false;
-            is_sender_channel_serviced.fill(true);
-            is_receiver_channel_serviced.fill(false);
-        } else if (risc_id == 1) {
-            // ERISC1: Handle receiver channels only
-            enable_handshake = false;
             enable_context_switch = false;
             enable_interrupts = false;
-            is_sender_channel_serviced.fill(false);
+            is_sender_channel_serviced.fill(true);
             is_receiver_channel_serviced.fill(true);
         } else {
-            TT_THROW("Invalid RISC ID {} for BLACKHOLE architecture", risc_id);
+            // Blackhole: Distribute sender/receiver across two RISC cores
+            if (risc_id == 0) {
+                // ERISC0: Handle sender channels only
+                enable_handshake = true;
+                enable_context_switch = false;
+                enable_interrupts = false;
+                is_sender_channel_serviced.fill(true);
+                is_receiver_channel_serviced.fill(false);
+            } else if (risc_id == 1) {
+                // ERISC1: Handle receiver channels only
+                enable_handshake = false;
+                enable_context_switch = false;
+                enable_interrupts = false;
+                is_sender_channel_serviced.fill(false);
+                is_receiver_channel_serviced.fill(true);
+            } else {
+                TT_THROW("Invalid RISC ID {} for BLACKHOLE architecture", risc_id);
+            }
         }
     } else {
         TT_THROW("Unsupported architecture for RISC configuration: {}", magic_enum::enum_name(arch));
@@ -110,6 +119,8 @@ FabricRiscConfig::FabricRiscConfig(uint32_t risc_id) :
     auto arch = tt::tt_metal::MetalContext::instance().hal().get_arch();
 
     configure_risc_settings(
+        tt::tt_metal::MetalContext::instance().hal().get_processor_classes_count(
+            tt::tt_metal::HalProgrammableCoreType::ACTIVE_ETH),
         risc_id,
         arch,
         this->enable_handshake_,
