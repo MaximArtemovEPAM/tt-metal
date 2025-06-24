@@ -49,8 +49,14 @@ FORCE_INLINE void check_worker_connections(
         // 3. closed the connection
         //
         // In such a case like that, we still want to formally teardown the connection to keep things clean
+        // DPRINT << "\tcheck conn at " << (uint32_t)local_sender_channel_worker_interface.connection_live_semaphore <<
+        // " my_y|my_x= " << (uint32_t)((my_y[0] << 16) | my_x[0]) << "\n"; DPRINT << "\trcheck conn at " <<
+        // (uint64_t)get_noc_addr(my_x[0], my_y[0],
+        // (uint32_t)local_sender_channel_worker_interface.connection_live_semaphore) << " my_y|my_x= " <<
+        // (uint32_t)((my_y[0] << 16) | my_x[0]) << "\n";
         uint32_t cached = *local_sender_channel_worker_interface.connection_live_semaphore;
         if (connect_is_requested(cached)) {
+            // DPRINT << "connect_is_requested\n";
             channel_connection_established = true;
 
             ASSERT(get_ptr_val(stream_id) <= static_cast<int32_t>(SENDER_NUM_BUFFERS));

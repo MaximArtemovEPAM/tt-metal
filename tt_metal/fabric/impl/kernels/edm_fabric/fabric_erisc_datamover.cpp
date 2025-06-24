@@ -718,6 +718,7 @@ FORCE_INLINE __attribute__((optimize("jump-tables"))) void receiver_forward_pack
     uint8_t transaction_id,
     uint32_t hop_cmd) {
     uint16_t payload_size_bytes = packet_start->payload_size_bytes;
+    DPRINT << "RX FWD PACKET\n";
 
     switch (hop_cmd) {
         case LowLatencyMeshRoutingFields::NOOP: break;
@@ -858,6 +859,7 @@ void run_sender_channel_step_impl(
             tt::tt_fabric::validate(*packet_header);
             packet_header_recorder.record_packet_header(reinterpret_cast<volatile uint32_t*>(packet_header));
         }
+        DPRINT << "send_data\n";  // uncommenting this causes a hang
         send_next_data<sender_channel_index, to_receiver_pkts_sent_id, SKIP_CONNECTION_LIVENESS_CHECK>(
             local_sender_channel,
             local_sender_channel_worker_interface,
@@ -1104,6 +1106,7 @@ void run_receiver_channel_step_impl(
             can_send_completion = can_send_completion && !internal_::eth_txq_is_busy(DEFAULT_ETH_TXQ);
         }
         if (can_send_completion) {
+            // DPRINT << "RX send completion\n";
             receiver_send_completion_ack(receiver_channel_pointers.get_src_chan_id(receiver_buffer_index));
             receiver_channel_trid_tracker.clear_trid_at_buffer_slot(receiver_buffer_index);
             completion_counter.increment();
@@ -1196,9 +1199,11 @@ void run_fabric_edm_main_loop(
     // improve performance. The value of 32 was chosen somewhat empirically and then raised up slightly.
 
     while (!got_immediate_termination_signal(termination_signal_ptr)) {
-        invalidate_l1_cache();
-        did_something = false;
+        // DPRINT << "here\n";
+        bool did_something = false;
         for (size_t i = 0; i < iterations_between_ctx_switch_and_teardown_checks; i++) {
+            invalidate_l1_cache();
+            // DPRINT << "here2\n";
             // Capture these to see if we made progress
 
             // There are some cases, mainly for performance, where we don't want to switch between sender channels
@@ -1272,6 +1277,7 @@ void run_fabric_edm_main_loop(
             if (did_something) {
                 did_nothing_count = 0;
             } else {
+                DPRINT << "CTX SWITCH\n";
                 if (did_nothing_count++ > SWITCH_INTERVAL) {
                     did_nothing_count = 0;
                     // shouldn't do noc counter sync since we are not incrementing them
@@ -1286,15 +1292,19 @@ template <typename EdmChannelWorkerIFs>
 void __attribute__((noinline)) wait_for_static_connection_to_ready(
     EdmChannelWorkerIFs& local_sender_channel_worker_interfaces,
     std::array<uint32_t, NUM_SENDER_CHANNELS>& local_sender_channel_free_slots_stream_ids_ordered) {
-    tuple_for_each(local_sender_channel_worker_interfaces.channel_worker_interfaces, [&](auto& interface, size_t idx) {
-        if (!sender_ch_live_check_skip[idx]) {
-            return;
-        }
-        while (!connect_is_requested(*interface.connection_live_semaphore)) {
-            invalidate_l1_cache();
-        }
-        establish_edm_connection(interface, local_sender_channel_free_slots_stream_ids_ordered[idx]);
-    });
+    tuple_for_each_constexpr(
+        local_sender_channel_worker_interfaces.channel_worker_interfaces, [&](auto& interface, auto idx) {
+            if constexpr (is_sender_channel_serviced[idx]) {
+                DPRINT << "wait_for_static_connection_to_ready " << (uint32_t)idx << "\n";
+                if (!sender_ch_live_check_skip[idx]) {
+                    return;
+                }
+                while (!connect_is_requested(*interface.connection_live_semaphore)) {
+                    invalidate_l1_cache();
+                }
+                establish_edm_connection(interface, local_sender_channel_free_slots_stream_ids_ordered[idx]);
+            }
+        });
 }
 
 // Returns the number of starting credits for the specified sender channel `i`
@@ -1422,6 +1432,9 @@ void kernel_main() {
         eth_txq_reg_write(
             receiver_txq_id, ETH_TXQ_DATA_PACKET_ACCEPT_AHEAD, DEFAULT_NUM_ETH_TXQ_DATA_PACKET_ACCEPT_AHEAD);
     }
+    DPRINT << "KERNEL_MAIN\n";
+    DPRINT << "NUM_SENDER_CHANNELS: " << (uint32_t)NUM_SENDER_CHANNELS << "\n";
+    DPRINT << "NUM_RECEIVER_CHANNELS: " << (uint32_t)NUM_RECEIVER_CHANNELS << "\n";
     //
     // COMMON CT ARGS (not specific to sender or receiver)
     //
@@ -1904,10 +1917,14 @@ void kernel_main() {
     }
 
     if constexpr (enable_ethernet_handshake) {
+        DPRINT << "enable_ethernet_handshake\n";
+
         if constexpr (is_handshake_sender) {
+            DPRINT << "HANDSHAKE SENDER\n";
             erisc::datamover::handshake::sender_side_handshake(
                 handshake_addr, DEFAULT_HANDSHAKE_CONTEXT_SWITCH_TIMEOUT);
         } else {
+            DPRINT << "HANDSHAKE RECEIVER\n";
             erisc::datamover::handshake::receiver_side_handshake(
                 handshake_addr, DEFAULT_HANDSHAKE_CONTEXT_SWITCH_TIMEOUT);
         }
@@ -1915,7 +1932,9 @@ void kernel_main() {
         *edm_status_ptr = tt::tt_fabric::EDMStatus::REMOTE_HANDSHAKE_COMPLETE;
 
         if constexpr (wait_for_host_signal) {
+            DPRINT << "wait_for_host_signal\n";
             if constexpr (is_local_handshake_master) {
+                DPRINT << "\tmaster\n";
                 wait_for_notification((uint32_t)edm_local_sync_ptr, num_local_edms - 1);
                 // This master sends notification to self for multi risc in single eth core case,
                 // This still send to self even though with single risc core case, but no side effects
@@ -1923,9 +1942,11 @@ void kernel_main() {
                 notify_subordinate_routers(
                     edm_channels_mask, exclude_eth_chan, (uint32_t)edm_local_sync_ptr, num_local_edms);
             } else {
+                DPRINT << "\tslave\n";
                 notify_master_router(local_handshake_master_eth_chan, (uint32_t)edm_local_sync_ptr);
                 wait_for_notification((uint32_t)edm_local_sync_ptr, num_local_edms);
             }
+            DPRINT << "checkpoint\n";
 
             *edm_status_ptr = tt::tt_fabric::EDMStatus::LOCAL_HANDSHAKE_COMPLETE;
 
@@ -1936,6 +1957,7 @@ void kernel_main() {
             wait_for_notification((uint32_t)edm_status_ptr, tt::tt_fabric::EDMStatus::READY_FOR_TRAFFIC);
 
             if constexpr (is_local_handshake_master) {
+                DPRINT << "\tmaster\n";
                 // 3. Only master risc core notifies all subordinate risc cores (except subordinate riscs in master eth
                 // core)
                 notify_subordinate_routers(
@@ -1992,9 +2014,19 @@ void kernel_main() {
 #endif
 
     WAYPOINT("FSCW");
+    DPRINT << "wait_for_static_connection_to_ready\n";
     wait_for_static_connection_to_ready(
         local_sender_channel_worker_interfaces, local_sender_channel_free_slots_stream_ids_ordered);
+    DPRINT << "\tDONE wait_for_static_connection_to_ready\n";
     WAYPOINT("FSCD");
+    for (size_t i = 0; i < NUM_SENDER_CHANNELS; i++) {
+        DPRINT << "Sender channel " << (uint32_t)i << " is serviced: " << (uint32_t)is_sender_channel_serviced[i]
+               << "\n";
+    }
+    for (size_t i = 0; i < NUM_RECEIVER_CHANNELS; i++) {
+        DPRINT << "Receiver channel " << (uint32_t)i << " is serviced: " << (uint32_t)is_receiver_channel_serviced[i]
+               << "\n";
+    }
 
     //////////////////////////////
     //////////////////////////////
@@ -2014,6 +2046,7 @@ void kernel_main() {
         port_direction_table,
         local_sender_channel_free_slots_stream_ids_ordered);
 
+    DPRINT << "DONE7\n";
     // we force these values to a non-zero value so that if we run the fabric back to back,
     // and we can reliably probe from host that this kernel has initialized properly.
     if constexpr (is_2d_fabric) {
@@ -2021,17 +2054,27 @@ void kernel_main() {
         *reinterpret_cast<volatile uint32_t*>(local_sender_channel_connection_buffer_index_id[my_direction]) = 99;
         *reinterpret_cast<volatile uint32_t*>(local_sender_flow_control_semaphores[my_direction]) = 99;
     } else {
-        *reinterpret_cast<volatile uint32_t*>(local_sender_channel_0_connection_semaphore_addr) = 99;
-        *reinterpret_cast<volatile uint32_t*>(local_sender_channel_0_connection_buffer_index_addr) = 99;
-        *sender0_worker_semaphore_ptr = 99;
+        // *reinterpret_cast<volatile uint32_t*>(local_sender_channel_0_connection_semaphore_addr) = 99;
+        // *reinterpret_cast<volatile uint32_t*>(local_sender_channel_0_connection_buffer_index_addr) = 99;
+        // *sender0_worker_semaphore_ptr = 99;
     }
 
+    DPRINT << "DONE6\n";
     // make sure all the noc transactions are acked before re-init the noc counters
-    receiver_channel_0_trid_tracker.all_buffer_slot_transactions_acked();
-    receiver_channel_1_trid_tracker.all_buffer_slot_transactions_acked();
+    if constexpr (is_receiver_channel_serviced[0]) {
+        receiver_channel_0_trid_tracker.all_buffer_slot_transactions_acked();
+    }
+    if constexpr (is_receiver_channel_serviced[1]) {
+        receiver_channel_1_trid_tracker.all_buffer_slot_transactions_acked();
+    }
 
+    DPRINT << "DONE5\n";
     // re-init the noc counters as the noc api used is not incrementing them
-    ncrisc_noc_counters_init();
+    if constexpr (is_sender_channel_serviced[0]) {
+        DPRINT << "DONE4.1\n";
+        ncrisc_noc_counters_init();
+    }
+    DPRINT << "DONE4\n";
 
     if constexpr (wait_for_host_signal) {
         if constexpr (is_local_handshake_master) {
@@ -2042,10 +2085,15 @@ void kernel_main() {
                 *termination_signal_ptr);
         }
     }
+    // TODO: ADD TEARDOWN SYNCHRONIZATION
+    DPRINT << "DONE3\n";
     noc_async_write_barrier();
+    DPRINT << "DONE2\n";
     noc_async_atomic_barrier();
+    DPRINT << "DONE1\n";
 
     *edm_status_ptr = tt::tt_fabric::EDMStatus::TERMINATED;
+    DPRINT << "DONE\n";
 
     WAYPOINT("DONE");
 }

@@ -383,6 +383,7 @@ struct WorkerToFabricEdmSenderImpl {
         tt::tt_fabric::EDMChannelWorkerLocationInfo* worker_location_info_ptr =
             reinterpret_cast<tt::tt_fabric::EDMChannelWorkerLocationInfo*>(edm_worker_location_info_addr);
 
+        DPRINT << "open to " << (uint64_t)edm_connection_handshake_noc_addr << "\n";
         noc_inline_dw_write<false, posted>(
             edm_connection_handshake_noc_addr, open_connection_value, 0xf, WORKER_HANDSHAKE_NOC);
         *this->worker_teardown_addr = 0;

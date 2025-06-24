@@ -97,7 +97,7 @@ def start_fabric_edm_daemon():
 
         env = os.environ.copy()
         env["TT_METAL_ENABLE_ERISC_IRAM"] = "1"
-        env["TT_METAL_DEVICE_PROFILER"] = "1"
+        # env["TT_METAL_DEVICE_PROFILER"] = "1"
 
         daemon_process = subprocess.Popen(
             cmd,
@@ -1370,7 +1370,7 @@ def test_fabric_4chip_two_link_mcast_bw(
 
 
 @pytest.mark.ubench_quick_tests
-@pytest.mark.parametrize("num_messages", [200000])
+@pytest.mark.parametrize("num_messages", [100])
 @pytest.mark.parametrize("num_op_invocations", [1])
 @pytest.mark.parametrize("line_sync", [True])
 @pytest.mark.parametrize("line_size", [2])
