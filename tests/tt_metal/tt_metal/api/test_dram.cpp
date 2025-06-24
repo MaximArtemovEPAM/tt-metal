@@ -322,7 +322,43 @@ TEST_F(DispatchFixture, IdleEthDRAMLoopbackSingleCore) {
     }
 }
 
-TEST_F(DispatchFixture, LoopDRAMRead) {
+TEST_F(DispatchFixture, LoopDRAMReadSingleCoreSingleProcessor) {
+    auto device = devices_.at(0);
+    tt_metal::Program program = tt_metal::CreateProgram();
+    CoreCoord core = {0, 0};
+
+    const uint32_t l1_address = device->allocator()->get_base_allocator_addr(HalMemType::L1);
+    const uint32_t dram_size = device->dram_size_per_channel();
+    const uint32_t num_drams = device->num_dram_channels();
+
+    constexpr uint32_t page_size = 2048;
+    constexpr uint32_t num_iterations = 1000;
+
+    // brisc reads from 8519744 and up using noc 0
+    const uint32_t brisc_base_addr = 8519744;
+    uint32_t brisc_num_pages_to_read = 43264;
+
+    log_info(
+        tt::LogTest,
+        "Brisc reading {} pages for {} iterations from dram address {}",
+        brisc_num_pages_to_read,
+        num_iterations,
+        brisc_base_addr);
+
+    tt_metal::KernelHandle brisc_kernel = tt_metal::CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/dataflow/dram_pcie_error.cpp",
+        core,
+        tt_metal::DataMovementConfig{
+            .processor = tt_metal::DataMovementProcessor::RISCV_0, .noc = tt_metal::NOC::RISCV_0_default});
+
+    tt_metal::SetRuntimeArgs(
+        program, brisc_kernel, core, {brisc_base_addr, page_size, l1_address, brisc_num_pages_to_read, num_iterations});
+
+    this->RunProgram(device, program);
+}
+
+TEST_F(DispatchFixture, LoopDRAMReadSingleCoreBothProcessors) {
     auto device = devices_.at(0);
     tt_metal::Program program = tt_metal::CreateProgram();
     CoreCoord core = {0, 0};
@@ -342,9 +378,18 @@ TEST_F(DispatchFixture, LoopDRAMRead) {
     uint32_t brisc_num_pages_to_read = 43264;
     uint32_t ncrisc_num_pages_to_read = ((brisc_base_addr - ncrisc_base_addr) / page_size) * num_drams;
 
-    std::cout << "Brisc base address: " << brisc_base_addr << " brisc num pages to read: " << brisc_num_pages_to_read
-              << " ncrisc base address: " << ncrisc_base_addr
-              << " ncrisc num pages to read: " << ncrisc_num_pages_to_read << std::endl;
+    log_info(
+        tt::LogTest,
+        "Brisc reading {} pages for {} iterations from dram address {}",
+        brisc_num_pages_to_read,
+        num_iterations,
+        brisc_base_addr);
+    log_info(
+        tt::LogTest,
+        "Ncrisc reading {} pages for {} iterations from dram address {}",
+        ncrisc_num_pages_to_read,
+        num_iterations,
+        ncrisc_base_addr);
 
     tt_metal::KernelHandle brisc_kernel = tt_metal::CreateKernel(
         program,
@@ -367,6 +412,115 @@ TEST_F(DispatchFixture, LoopDRAMRead) {
         program,
         ncrisc_kernel,
         core,
+        {
+            ncrisc_base_addr,
+            page_size,
+            l1_address,
+            ncrisc_num_pages_to_read,
+            num_iterations,
+        });
+
+    this->RunProgram(device, program);
+}
+
+TEST_F(DispatchFixture, LoopDRAMReadMultiCoreSingleProcessor) {
+    auto device = devices_.at(0);
+    tt_metal::Program program = tt_metal::CreateProgram();
+    CoreCoord worker_grid_size = device->compute_with_storage_grid_size();
+    auto all_cores = CoreRangeSet({CoreRange({0, 0}, {worker_grid_size.x - 1, worker_grid_size.y - 1})});
+
+    const uint32_t l1_address = device->allocator()->get_base_allocator_addr(HalMemType::L1);
+    const uint32_t dram_size = device->dram_size_per_channel();
+    const uint32_t num_drams = device->num_dram_channels();
+
+    constexpr uint32_t page_size = 2048;
+    constexpr uint32_t num_iterations = 1000;
+
+    // brisc reads from 8519744 and up using noc 0
+    const uint32_t brisc_base_addr = 8519744;
+    uint32_t brisc_num_pages_to_read = 43264;
+
+    log_info(
+        tt::LogTest,
+        "Brisc reading {} pages for {} iterations from dram address {}",
+        brisc_num_pages_to_read,
+        num_iterations,
+        brisc_base_addr);
+
+    tt_metal::KernelHandle brisc_kernel = tt_metal::CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/dataflow/dram_pcie_error.cpp",
+        all_cores,
+        tt_metal::DataMovementConfig{
+            .processor = tt_metal::DataMovementProcessor::RISCV_0, .noc = tt_metal::NOC::RISCV_0_default});
+
+    tt_metal::SetRuntimeArgs(
+        program,
+        brisc_kernel,
+        all_cores,
+        {brisc_base_addr, page_size, l1_address, brisc_num_pages_to_read, num_iterations});
+
+    this->RunProgram(device, program);
+}
+
+TEST_F(DispatchFixture, LoopDRAMReadMultiCoreBothProcessors) {
+    auto device = devices_.at(0);
+    tt_metal::Program program = tt_metal::CreateProgram();
+    CoreCoord worker_grid_size = device->compute_with_storage_grid_size();
+    auto all_cores = CoreRangeSet({CoreRange({0, 0}, {worker_grid_size.x - 1, worker_grid_size.y - 1})});
+
+    const uint32_t l1_address = device->allocator()->get_base_allocator_addr(HalMemType::L1);
+    const uint32_t dram_size = device->dram_size_per_channel();
+    const uint32_t num_drams = device->num_dram_channels();
+
+    constexpr uint32_t page_size = 2048;
+    constexpr uint32_t num_iterations = 1000;
+
+    // brisc reads from 8519744 and up using noc 0
+    const uint32_t brisc_base_addr = 8519744;
+    // ncrisc reads from 64 and up using noc 1
+    uint32_t ncrisc_base_addr = MetalContext::instance().hal().get_dev_addr(HalDramMemAddrType::UNRESERVED);
+
+    uint32_t brisc_num_pages_to_read = 43264;
+    uint32_t ncrisc_num_pages_to_read = ((brisc_base_addr - ncrisc_base_addr) / page_size) * num_drams;
+
+    log_info(
+        tt::LogTest,
+        "Brisc reading {} pages for {} iterations from dram address {}",
+        brisc_num_pages_to_read,
+        num_iterations,
+        brisc_base_addr);
+    log_info(
+        tt::LogTest,
+        "Ncrisc reading {} pages for {} iterations from dram address {}",
+        ncrisc_num_pages_to_read,
+        num_iterations,
+        ncrisc_base_addr);
+
+    tt_metal::KernelHandle brisc_kernel = tt_metal::CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/dataflow/dram_pcie_error.cpp",
+        all_cores,
+        tt_metal::DataMovementConfig{
+            .processor = tt_metal::DataMovementProcessor::RISCV_0, .noc = tt_metal::NOC::RISCV_0_default});
+
+    tt_metal::SetRuntimeArgs(
+        program,
+        brisc_kernel,
+        all_cores,
+        {brisc_base_addr, page_size, l1_address, brisc_num_pages_to_read, num_iterations});
+
+    tt_metal::KernelHandle ncrisc_kernel = tt_metal::CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/dataflow/dram_pcie_error.cpp",
+        all_cores,
+        tt_metal::DataMovementConfig{
+            .processor = tt_metal::DataMovementProcessor::RISCV_1, .noc = tt_metal::NOC::RISCV_1_default});
+
+    tt_metal::SetRuntimeArgs(
+        program,
+        ncrisc_kernel,
+        all_cores,
         {
             ncrisc_base_addr,
             page_size,
