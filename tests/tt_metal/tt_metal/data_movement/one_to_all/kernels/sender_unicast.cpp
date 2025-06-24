@@ -24,6 +24,7 @@ void kernel_main() {
 
     {
         DeviceZoneScopedN("RISCV0");
+        // DeviceZoneScopedN("RISCV1");
 
         for (uint32_t i = 0; i < num_of_transactions; i++) {
             for (uint32_t subordinate_num = 0; subordinate_num < num_subordinates; subordinate_num++) {
@@ -39,14 +40,6 @@ void kernel_main() {
 
         noc_async_write_barrier();
     }
-
-    /* SEMAPHORES (currently unused)
-    for (uint32_t subordinate = 0; subordinate < num_subordinates; subordinate++) {
-        uint32_t dest_x = get_arg_val<uint32_t>(subordinate_coords_offset + 2 * subordinate);
-        uint32_t dest_y = get_arg_val<uint32_t>(subordinate_coords_offset + 2 * subordinate + 1);
-        uint64_t sem_addr = get_noc_addr(dest_x, dest_y, semaphore);
-        noc_semaphore_inc(sem_addr, 1);
-    }*/
 
     noc_async_atomic_barrier();
 

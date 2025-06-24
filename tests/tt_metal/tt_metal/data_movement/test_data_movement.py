@@ -581,7 +581,7 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
             "bandwidths": [],
             "transactions": [],
         }
-        if test_id == 100:
+        if test_id >= 100:
             data["multicast_scheme_types"] = []
             data["grid_dimensions"] = []
 
@@ -597,7 +597,7 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
             data["bandwidths"].append(bandwidth)
             data["transactions"].append(num_transactions)
 
-            if test_id == 100:
+            if test_id >= 100:
                 multicast_scheme_type = attr["Multicast Scheme Type"]
                 grid_dimensions = f"{attr['Subordinate Grid Size X']} x {attr['Subordinate Grid Size Y']}"
 
@@ -622,7 +622,9 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
         ax.set_ylabel("Duration (cycles)")
         ax.set_title("Kernel Durations")
         if lines:
-            ax.legend(lines, labels)
+            ax.legend(
+                lines, labels, loc="center left", bbox_to_anchor=(1.0, 0.5), borderaxespad=0
+            )  # Legend outside plot
         ax.grid()
 
     # Plot Type 2: Transaction Size vs Bandwidth
@@ -652,29 +654,35 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
         ax.set_xlabel("Transaction Size (bytes)")
         ax.set_ylabel("Bandwidth (bytes/cycle)")
         ax.set_title("Data Size vs Bandwidth")
-        ax.legend()
+        ax.legend(loc="center left", bbox_to_anchor=(1.0, 0.5), borderaxespad=0)  # Legend outside plot
         ax.grid()
 
     # Plot Type 3 (Multicast Schemes): Grid Dimensions vs Bandwidth (one line per multicast scheme)
-    def plot_bandwidth(ax, data, x_axis, lines):
-        lines_list = sorted(set(itertools.chain.from_iterable(data[riscv][lines] for riscv in data)))
+    def plot_bandwidth(ax, data, riscv, x_axis, lines):
+        # Combine x_axis, bandwidths, and lines into a single list of tuples
+        combined_data = list(zip(data[riscv][x_axis], data[riscv]["bandwidths"], data[riscv][lines]))
+
+        # Sort the combined data by the x_axis values
+        combined_data.sort(key=lambda x: x[0])
+
+        # Extract sorted x_axis, bandwidths, and lines
+        sorted_x_axis, sorted_bandwidths, sorted_lines = zip(*combined_data)
+
+        # Get unique line categories
+        lines_list = sorted(set(sorted_lines))
 
         for line in lines_list:
-            grouped = {}
-            for riscv in RISCV_LIST:
-                grouped[riscv] = [
-                    (size, bw)
-                    for size, bw, trans in zip(data[riscv][x_axis], data[riscv]["bandwidths"], data[riscv][lines])
-                    if trans == line
-                ]
-                if grouped[riscv]:
-                    sizes, bws = zip(*grouped[riscv])
-                    ax.plot(sizes, bws, label=f"{riscv.upper()} ({lines}: {line})", marker="o")
+            # Filter data for the current line category
+            filtered_data = [(x, bw) for x, bw, l in zip(sorted_x_axis, sorted_bandwidths, sorted_lines) if l == line]
+
+            if filtered_data:
+                sizes, bws = zip(*filtered_data)
+                ax.plot(sizes, bws, label=f"{riscv.upper()} ({lines}: {line})", marker="o")
 
         ax.set_xlabel(f"{x_axis}")
         ax.set_ylabel("Bandwidth (bytes/cycle)")
         ax.set_title(f"{x_axis} vs Bandwidth")
-        ax.legend()
+        ax.legend(loc="center left", bbox_to_anchor=(1.0, 0.5), borderaxespad=0)  # Legend outside plot
         ax.grid()
 
     def add_plot_comment_section(subsubfig, test_id):
@@ -698,10 +706,20 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
         for attributes in dm_stats[riscv]["attributes"].values():
             test_ids.add(attributes["Test id"])
 
-    test_ids = sorted(test_ids)  # Sort for consistent ordering
+    test_ids = sorted(test_ids)  # Sort for consistent ordering ## ALLOCAte specific width for just legend?
+
+    # Define size for a single plot
+    single_plot_width = 15  # Width of a single plot
+    single_plot_height = 6  # Height of a single plot
+    nrows = 2  # Number of rows of subplots per test
+    ncols = 2  # Number of columns of subplots per test
+
+    # Calculate the figure size dynamically
+    figure_width = single_plot_width * ncols
+    figure_height = (single_plot_height * nrows + 1) * len(test_ids)  # +1 for comments section
 
     # Create the main figure
-    fig = plt.figure(layout="constrained", figsize=(18, 6 * len(test_ids)))
+    fig = plt.figure(figsize=(figure_width, figure_height), constrained_layout=True)
 
     # Create subfigures for each Test id
     subfigs = fig.subfigures(len(test_ids), 1)
@@ -720,7 +738,7 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
         subsubfig[0].suptitle(test_name, fontsize=16, weight="bold")
 
         # Create subplots within the subfigure
-        axes = subsubfig[0].subplots(1, 2)
+        axes = subsubfig[0].subplots(nrows, ncols)
 
         # Extract data for riscv_1 and riscv_0
         data = {}
@@ -728,24 +746,39 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
             data[riscv] = extract_data(series[riscv], dm_stats[riscv]["attributes"], test_id)
 
         # Plots
-
-        if test_id == 100:  # Multicast schemes
+        if test_id >= 100:  # Multicast schemes
             plot_bandwidth(
-                axes[0],
+                axes[0][0],
                 data,
+                riscv="riscv_0",
                 x_axis="grid_dimensions",
                 lines="multicast_scheme_types",
             )
             plot_bandwidth(
-                axes[1],
+                axes[0][1],
                 data,
+                riscv="riscv_1",
+                x_axis="grid_dimensions",
+                lines="multicast_scheme_types",
+            )
+            plot_bandwidth(
+                axes[1][0],
+                data,
+                riscv="riscv_0",
+                x_axis="multicast_scheme_types",
+                lines="grid_dimensions",
+            )
+            plot_bandwidth(
+                axes[1][1],
+                data,
+                riscv="riscv_1",
                 x_axis="multicast_scheme_types",
                 lines="grid_dimensions",
             )
         else:
-            plot_durations(axes[0], data)
+            plot_durations(axes[0][0], data)
             plot_data_size_vs_bandwidth(
-                axes[1],
+                axes[0][1],
                 data,
                 noc_width,
             )

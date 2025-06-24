@@ -13,6 +13,7 @@ void directed_ideal_test(
     CoreCoord mst_core_coord,
     CoreCoord sub_start_core_coord,
     CoreCoord sub_grid_size,
+    bool loopback = true,
     NOC noc_id = NOC::NOC_0,
     uint32_t multicast_scheme_type = 0);
 }

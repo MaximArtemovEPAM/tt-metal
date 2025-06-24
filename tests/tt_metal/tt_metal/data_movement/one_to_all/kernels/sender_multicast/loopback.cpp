@@ -28,17 +28,16 @@ void kernel_main() {
     constexpr uint32_t sub_grid_size_y = get_compile_time_arg_val(15);
 
     // Derivative values
-    const char* riscv_str = (noc_index == 0) ? "RISCV0" : "RISCV1";
     constexpr uint32_t bytes_per_transaction = pages_per_transaction * bytes_per_page;
     constexpr uint32_t bytes = bytes_per_transaction * num_of_transactions;
 
-    uint64_t dst_noc_addr_multicast = get_noc_multicast_addr(start_x, start_y, end_x, end_y, sub_base_addr);
-    uint32_t sem_addr = get_semaphore(sem_id);
-    // uint64_t sem_noc_addr = get_noc_addr(receiver_x_coord, receiver_y_coord, sem_addr);
+    uint64_t dst_noc_addr_multicast = noc_index == 0
+                                          ? get_noc_multicast_addr(start_x, start_y, end_x, end_y, sub_base_addr)
+                                          : get_noc_multicast_addr(end_x, end_y, start_x, start_y, sub_base_addr);
 
     {
         // DeviceZoneScopedN(riscv_str);
-        DeviceZoneScopedN("RISCV1");
+        DeviceZoneScopedN("RISCV0");
 
         for (uint32_t i = 0; i < num_of_transactions - 1; i++) {
             noc_async_write_multicast_loopback_src(
@@ -52,18 +51,6 @@ void kernel_main() {
 
         noc_async_write_barrier();
     }
-
-    // Semaphore incrementation (currently unused)
-    /*for (uint32_t subordinate = 0; subordinate < num_subordinates; subordinate++) {
-
-        uint32_t dest_coord_packed = get_arg_val<uint32_t>(subordinate_num);
-        uint32_t dest_coord_x = dest_coord_packed >> 16;
-        uint32_t dest_coord_y = dest_coord_packed & 0xFFFF;
-
-        uint64_t sem_addr = get_noc_addr(dest_coord_x, dest_coord_y, semaphore);
-
-        noc_semaphore_inc(sem_addr, 1);
-    }*/
 
     DeviceTimestampedData("Number of transactions", num_of_transactions);
     DeviceTimestampedData("Transaction size in bytes", bytes_per_transaction);
