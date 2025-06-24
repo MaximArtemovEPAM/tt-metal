@@ -33,7 +33,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
     needed_padding = (batch_size - len(prompts) % batch_size) % batch_size
     prompts = prompts + [""] * needed_padding
 
-    guidance_scale = 5.0
+    guidance_scale = 8.0
 
     # 0. Set up default height and width for unet
     height = 1024
