@@ -31,8 +31,9 @@ def test_single_device_single_trace(device, shape, blocking):
     tid = ttnn.begin_trace_capture(device, cq_id=0)
     output_tensor = run_op_chain(input_0_dev, input_1_dev)
     ttnn.end_trace_capture(device, tid, cq_id=0)
-
+    torch.manual_seed(0)
     for i in range(50):
+        logger.info(f"Loop {i}")
         # Create torch inputs
         torch_input_tensor_0 = torch.rand(shape, dtype=torch.bfloat16)
         torch_input_tensor_1 = torch.rand(shape, dtype=torch.bfloat16)
