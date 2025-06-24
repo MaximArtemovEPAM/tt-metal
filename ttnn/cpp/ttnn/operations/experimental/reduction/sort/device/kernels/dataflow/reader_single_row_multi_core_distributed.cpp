@@ -165,10 +165,10 @@ void kernel_main() {
 
                 // Wait for Compute for complete
                 // Use sync_with_writer_cb as barrier
-                // DPRINT << TERM_READER << "[Reader] synchronizing with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_READER << "[Reader] synchronizing with compute" << TERM_RESET << ENDL();
                 cb_wait_front(sync_with_reader_cb_index, one_tile);
                 cb_pop_front(sync_with_reader_cb_index, one_tile);
-                // DPRINT << TERM_READER << "[Reader] synchronized with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_READER << "[Reader] synchronized with compute" << TERM_RESET << ENDL();
 
                 // Exchange Index tile with peer
                 DPRINT << TERM_READER << "[Reader] stage #" << core_stage << ", sub = " << sub_dist << ", "

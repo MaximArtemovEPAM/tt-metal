@@ -209,10 +209,10 @@ void kernel_main() {
 
                 // Wait for Compute for complete
                 // Use sync_with_writer_cb as barrier
-                // DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
                 cb_wait_front(sync_with_writer_cb_index, one_tile);
                 cb_pop_front(sync_with_writer_cb_index, one_tile);
-                // DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
 
                 // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
                 DPRINT << TERM_WRITER << "[Writer] stage #" << core_stage << ", sub = " << sub_dist << ", "
@@ -253,6 +253,8 @@ void kernel_main() {
 
                     cb_pop_front(input_tensor_transposed_cb_index, one_tile);
                 }  // Wt loop
+
+                DPRINT << TERM_WRITER << "[Writer] <- " << other_core_id << TERM_RESET << ENDL();
             }  // core_stage
         }  // intercore_stages
 

@@ -41,6 +41,10 @@ inline void dprint_array_with_data_type(uint32_t data_format, uint32_t* data, ui
            << ENDL();
 }
 
+inline void dprint_element_with_data_type(uint32_t data_format, uint32_t* data, uint32_t count) {
+    DPRINT << TYPED_U32_ARRAY(TypedU32_ARRAY_Format_Tensix_Config_Register_Data_Format_Type, data_format, data, count);
+}
+
 // Dprints data format as string given an uint
 inline void dprint_data_format(uint8_t data_format) {
     switch (data_format) {
@@ -164,6 +168,23 @@ inline void dprint_tensix_dest_reg_row_float32(uint16_t row) {
     dprint_array_with_data_type((uint32_t)DataFormat::Float32, rd_data, ARRAY_LEN);
 }
 
+inline void dprint_tensix_dest_reg_col0_float32(uint16_t row) {
+    constexpr int ARRAY_LEN = 16;
+    uint32_t rd_data_temp[ARRAY_LEN];
+    uint32_t rd_data[ARRAY_LEN + 1];  // data + array type
+
+    // read two rows [[Float16], [Mantissa]]
+    dbg_read_dest_acc_row(row, rd_data_temp);
+    dbg_read_dest_acc_row(row + 8, rd_data_temp + 8);
+
+    for (int i = 0; i < 8; ++i) {
+        rd_data[2 * i] = reconstruct_float32(lo_word(rd_data_temp[i]), lo_word(rd_data_temp[i + 8]));
+        rd_data[2 * i + 1] = reconstruct_float32(hi_word(rd_data_temp[i]), hi_word(rd_data_temp[i + 8]));
+    }
+
+    dprint_element_with_data_type((uint32_t)DataFormat::Float32, rd_data, 1);
+}
+
 // Helper function that prints one row from dest when dest is configured for storing float16 values.
 // This function should be used only from dprint_tensix_dest_reg.
 inline void dprint_tensix_dest_reg_row_float16(uint32_t data_format, uint16_t row) {
@@ -186,6 +207,13 @@ inline void dprint_tensix_dest_reg_row_int32(uint16_t row) {
 #else
     DPRINT << "Int32 format not supported on this architecture" << ENDL();
 #endif
+}
+
+inline void dprint_tensix_dest_reg_col0_float16(uint32_t data_format, uint16_t row) {
+    constexpr int ARRAY_LEN = 8;
+    uint32_t rd_data[ARRAY_LEN + 1];  // data + array type
+    dbg_read_dest_acc_row(row, rd_data);
+    dprint_array_with_data_type(data_format, rd_data, 1);
 }
 
 // Print the contents of tile with index tile_id within the destination register
@@ -225,6 +253,43 @@ void dprint_tensix_dest_reg(int tile_id = 0) {
             }
             if constexpr (print_by_face) {
                 DPRINT << ENDL();
+            }
+        }
+    })
+    dbg_unhalt();
+}
+
+void dprint_tensix_dest_reg_col0(int tile_id = 0) {
+    dbg_halt();
+    MATH({
+        // Determine the format of the data in the destination register
+        uint32_t data_format_reg_field_value = READ_HW_CFG_0_REG_FIELD(ALU_FORMAT_SPEC_REG2_Dstacc);
+
+        if (READ_HW_CFG_0_REG_FIELD(ALU_ACC_CTRL_Fp32_enabled)) {
+            data_format_reg_field_value =
+                (uint32_t)DataFormat::Float32;  // Override the data format to tt::DataFormat::Float32
+        }
+
+        bool is_float32 = data_format_reg_field_value == (uint32_t)DataFormat::Float32;
+        bool is_swizzled = false;
+        bool is_remapped = false;
+
+#ifdef ARCH_BLACKHOLE
+        is_remapped = READ_HW_CFG_0_REG_FIELD(DEST_ACCESS_CFG_remap_addrs) == 1;
+        is_swizzled = READ_HW_CFG_0_REG_FIELD(DEST_ACCESS_CFG_swizzle_32b) == 1;
+#endif
+        // Print the contents
+        DPRINT << FIXED() << SETW(WIDTH) << SETPRECISION(PRECISION);
+        DPRINT << "Tile ID = " << tile_id << ENDL();
+
+        for (int face_id = 0; face_id < NUM_FACES_PER_TILE; face_id += 2) {
+            for (int row_id = 0; row_id < NUM_ROWS_PER_FACE; ++row_id) {
+                uint16_t row = get_dest_row_id(row_id, is_float32);
+                if (is_float32) {
+                    dprint_tensix_dest_reg_col0_float32(row);
+                } else {
+                    dprint_tensix_dest_reg_col0_float16(data_format_reg_field_value, row);
+                }
             }
         }
     })

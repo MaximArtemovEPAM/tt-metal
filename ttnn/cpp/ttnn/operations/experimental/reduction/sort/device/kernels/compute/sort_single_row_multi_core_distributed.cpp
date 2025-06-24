@@ -19,6 +19,28 @@
 
 namespace NAMESPACE {
 
+FORCE_INLINE
+void print_Wt_tiles(uint32_t cb_value, uint32_t Wt, uint32_t core_stage, uint32_t core_sub_dist) {
+    // Debug: Print data
+    for (uint32_t w = 0; w < Wt; w++) {
+        constexpr uint32_t INPUT_TILE0 = 0;
+
+        // input_tensor_transposed_cb_index already in reserved state
+        tile_regs_acquire();
+        copy_tile_to_dst_init_short(cb_value);
+        copy_tile(cb_value, w, INPUT_TILE0);
+
+        DPRINT_MATH(
+            DPRINT << "OUTPUT [" << w << "] core stage = " << core_stage << ", core sub = " << core_sub_dist << ENDL());
+        dprint_tensix_dest_reg(INPUT_TILE0);
+        tile_regs_commit();
+
+        tile_regs_wait();
+        // Nothing to do: We are only printing tiles
+        tile_regs_release();
+    }
+}
+
 // For Debug
 enum SortDirection { ASCENDING = 0, DESCENDING = 1 };
 
@@ -151,13 +173,15 @@ void MAIN {
             ascending,
             /*end_phase(log2(K))=*/5);
 
-        // DPRINT << TERM_COMPUTE << "[Compute] built bitonic sequence" << TERM_RESET << ENDL();
-        // Wait for bitonic sequence of Wt tiles
+        DPRINT << TERM_COMPUTE << "[Compute] displaying tensors" << TERM_RESET << ENDL();
         cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
-        // DPRINT << TERM_COMPUTE << "[Compute] cb_wait_front(input_tensor_cb)" << TERM_RESET << ENDL();
         cb_wait_front(index_tensor_transposed_cb_index, Wt_per_core);
-        // DPRINT << TERM_COMPUTE << "[Compute] cb_wait_frotn(index_tensor_cb)" << TERM_RESET << ENDL();
 
+        print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
+
+        DPRINT << TERM_COMPUTE << "[Compute] displayed tensors" << TERM_RESET << ENDL();
+
+        // Wait for bitonic sequence of Wt tiles
         // Sort and merge step of bitonic merge sort
         uint32_t stages = 0;
         for (uint32_t i = Wt_per_core; i > 1; i >>= 1) {
@@ -280,13 +304,34 @@ void MAIN {
                 // ENDL();
                 // TODO: Compute ascending/descending parameters for each stage
                 bool select_min = (this_core_id ^ core_sub_dist) > this_core_id;
-                ascending_core = ((this_core_id >> (core_stage)) & 1) == 0;
+
+                // If core takes minimum value then it must be sorted in ascending order
+                // If core takes maximum value then it must be sorted in descending order
+                // That mean we must sort the array according to the parameters of the next iterations.
+
+                uint32_t next_core_sub = core_sub - 1;
+                uint32_t next_core_sub_dist = 0;
+                uint32_t next_core_stage = core_stage;
+                if (next_core_sub > 0) {
+                    next_core_sub_dist = 1 << (next_core_sub - 1);
+                } else {
+                    next_core_stage = core_stage + 1;
+                    next_core_sub_dist = 1 << (next_core_stage - 1);
+                }
+                bool ascending_core = (this_core_id ^ next_core_sub_dist) > this_core_id;
+
+                // ascending_core = ((this_core_id >> (core_stage)) & 1) == 0;
                 bool sort_direction = ((uint32_t)ascending_core == SortDirection::ASCENDING);
 
                 DPRINT_MATH(DPRINT << TERM_COMPUTE
                                    << "[Compute] rebuilding bitonic sequence, core stage = " << core_stage
                                    << ", core_sub = " << core_sub << ", select min = " << (uint32_t)select_min
-                                   << ", ascending core = " << (uint32_t)ascending_core << TERM_RESET << ENDL(););
+                                   << ", ascending core = " << (uint32_t)ascending_core
+                                   << ", core sub dist = " << core_sub_dist << ", next core stage = " << next_core_stage
+                                   << ", next core sub dist = " << next_core_sub_dist
+                                   << ", other core id = " << (this_core_id ^ core_sub_dist) << TERM_RESET << ENDL();
+
+                );
 
                 // Synchronize with Writer: Writer can start reading input_tensor_transposed_cb_index
                 cb_reserve_back(sync_with_writer_cb_index, one_tile);
@@ -375,6 +420,7 @@ void MAIN {
 
                     // DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] topk merge" << TERM_RESET << ENDL(););
                     ckernel::topk_merge(TILE_INPUT0, (int)5, 32);
+                    // ckernel::topk_local_sort(TILE_INPUT0, (int)0, 5);
 
                     // DPRINT << TERM_COMPUTE << "[Compute] merged tiles #" << i << TERM_RESET << ENDL();
 
@@ -411,6 +457,9 @@ void MAIN {
                     cb_reserve_back(sync_packer_with_unpacker_cb_index, one_tile);
                     cb_push_back(sync_packer_with_unpacker_cb_index, one_tile);
                 }
+
+                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] received tiles from writer" << TERM_RESET << ENDL(););
+                print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
 
                 cb_pop_front(input_tensor_transposed_cb_index, Wt_per_core);
                 cb_pop_front(index_tensor_transposed_cb_index, Wt_per_core);
@@ -466,6 +515,7 @@ void MAIN {
                     // dprint_tensix_dest_reg_col0(INPUT_TILE1);
 
                     constexpr uint32_t end_phase = 5;
+                    ckernel::topk_tile_init();
                     ckernel::topk_local_sort(INPUT_TILE0, (int)ascending_local, end_phase);
 
                     // DPRINT_MATH(DPRINT << "OUTPUT0 (" << i << ")" << ENDL());
@@ -489,6 +539,10 @@ void MAIN {
                     ascending_local = switch_dir ? !ascending_local : ascending_local;
                 }
                 // DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] start second merger" << TERM_RESET << ENDL(););
+
+                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] local sort, stage = " << core_stage
+                                   << ", core_sub = " << core_sub << TERM_RESET << ENDL(););
+                print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
 
                 // TODO: Compute start stage
 
@@ -567,6 +621,8 @@ void MAIN {
                         }
                     }
                 }
+
+                print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, core_stage, core_sub_dist);
 
                 // DPRINT << TERM_COMPUTE << "[Compute] finish second local sort" << TERM_RESET << ENDL();
                 cb_reserve_back(input_tensor_transposed_cb_index, Wt_per_core);
