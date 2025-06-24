@@ -6,7 +6,7 @@
 
 // CCL Kernel common includes
 #include "tt_metal/fabric/hw/inc/edm_fabric/fabric_connection_manager.hpp"
-#include <tt-metalium/fabric_edm_packet_header.hpp>
+#include "tt_metal/api/tt-metalium/fabric.hpp"
 #include "tt_metal/fabric/hw/inc/noc_addr.h"
 #include "cpp/ttnn/operations/ccl/shared_with_host/hetergeneous_data_structs.hpp"
 #include "cpp/ttnn/operations/ccl/common/interpreter_backends/kernel_common/command_interpreter_base.hpp"

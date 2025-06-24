@@ -6,7 +6,7 @@
 #include "debug/assert.h"
 #include "tt_metal/hw/inc/ethernet/tunneling.h"
 
-#include "tt_metal/api/tt-metalium/fabric_edm_packet_header.hpp"
+#include "tt_metal/fabric/fabric_edm_packet_header.hpp"
 #include "tt_metal/api/tt-metalium/edm_fabric_counters.hpp"
 #include "tt_metal/api/tt-metalium/fabric_edm_types.hpp"
 
@@ -323,7 +323,7 @@ struct ChannelPointersTupleImpl<ChannelType, BufferSizes, std::index_sequence<Is
     }
 };
 
-// Simplify the “builder” so that make() returns the Impl<…> directly:
+// Simplify the "builder" so that make() returns the Impl<…> directly:
 template <template <uint8_t> class ChannelType, auto& BufferSizes>
 struct ChannelPointersTuple {
     static constexpr size_t N = std::size(BufferSizes);
@@ -1191,7 +1191,7 @@ void run_fabric_edm_main_loop(
     std::array<bool, NUM_SENDER_CHANNELS> channel_connection_established =
         initialize_array<NUM_SENDER_CHANNELS, bool, false>();
 
-    // This value defines the number of loop iterations we perform of the main control sequence before exiting
+    // This value defines the number of loop iterations we perform of the main control sequence before exiting
     // to check for termination and context switch. Removing the these checks from the inner loop can drastically
     // improve performance. The value of 32 was chosen somewhat empirically and then raised up slightly.
 
