@@ -105,8 +105,6 @@ TEST_F(DispatchFixture, SingleRemoteChipInit) {  // make this device fixture
     const ll_api::memory& binary_mem =
         *tt_metal::KernelImpl::from(*eth_kernel)
              .binaries(BuildEnvManager::get_instance().get_device_build_env(mmio_device->build_id()).build_key)[0];
-    auto binary_address = tt::tt_metal::MetalContext::instance().hal().get_dev_addr(
-        HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::UNRESERVED);
 
     auto num_spans = binary_mem.num_spans();
     uint32_t erisc_core_type =
@@ -131,21 +129,12 @@ TEST_F(DispatchFixture, SingleRemoteChipInit) {  // make this device fixture
     });
 
     auto virtual_eth_core = mmio_device->ethernet_core_from_logical_core(mmio_chip_eth.value());
-    llrt::write_binary_to_address(binary_mem, mmio_device->id(), virtual_eth_core, binary_address);
 
     std::cout << "virtual_eth_core " << virtual_eth_core.str() << std::endl;
     std::cout << "dst_binary_address: " << dst_binary_address << " binary_size_bytes " << binary_size_bytes
               << std::endl;
     tt_metal::SetRuntimeArgs(
-        mmio_program,
-        mmio_eth_kernel,
-        mmio_chip_eth.value(),
-        {
-            0,
-            binary_address,      // Address where the binary is written on mmio core
-            dst_binary_address,  // where active eth binaries should be written ...
-            binary_size_bytes,   // size of the binary .... how to get this?
-        });
+        mmio_program, mmio_eth_kernel, mmio_chip_eth.value(), {0, dst_binary_address, binary_size_bytes, false});
 
     tt::tt_metal::MetalContext::instance().get_cluster().l1_barrier(
         mmio_device->id());  // don't need launch program should do

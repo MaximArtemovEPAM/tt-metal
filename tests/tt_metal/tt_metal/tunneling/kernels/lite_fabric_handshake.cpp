@@ -20,30 +20,27 @@ FORCE_INLINE int32_t get_state() {
 }
 
 template <uint32_t stream_id>
-FORCE_INLINE void send_handshake_signal(uint32_t debug_addr) {
+FORCE_INLINE void send_handshake_signal(uint32_t l1_handshake_addr) {
     constexpr uint32_t addr = STREAM_REG_ADDR(stream_id, STREAM_REMOTE_DEST_BUF_SPACE_AVAILABLE_UPDATE_REG_INDEX);
     internal_::eth_write_remote_reg(0, addr, 1 << REMOTE_DEST_BUF_WORDS_FREE_INC);
-    // volatile tt_l1_ptr uint32_t* debug_addr_ptr = reinterpret_cast<volatile tt_l1_ptr uint32_t*>(debug_addr);
-    // debug_addr_ptr[0] = 0x39;
-    // internal_::eth_send_packet<false>(0, debug_addr >> 4, debug_addr >> 4, 16 >> 4);
-    // while (eth_txq_is_busy());
-    // debug_addr_ptr[0] = 0x0;
+    // volatile tt_l1_ptr uint32_t* handshake_addr_ptr = reinterpret_cast<volatile tt_l1_ptr
+    // uint32_t*>(l1_handshake_addr); handshake_addr_ptr[0] = 0x39; internal_::eth_send_packet<false>(0,
+    // l1_handshake_addr >> 4, l1_handshake_addr >> 4, 16 >> 4); while (eth_txq_is_busy()); handshake_addr_ptr[0] = 0x0;
 }
 
 void kernel_main() {
     uint32_t initial_state = get_arg_val<uint32_t>(0);
-    uint32_t src_binary_address = get_arg_val<uint32_t>(1);  // only used by eths that set up kernels
-    uint32_t dst_binary_address = get_arg_val<uint32_t>(2);  // only used by eths that set up kernels
-    uint32_t binary_size_bytes = get_arg_val<uint32_t>(3);   // only used by eths that set up kernels
+    uint32_t binary_address = get_arg_val<uint32_t>(1);     // only used by eths that set up kernels
+    uint32_t binary_size_bytes = get_arg_val<uint32_t>(2);  // only used by eths that set up kernels
+    bool multi_eth_cores_setup = get_arg_val<uint32_t>(3) == 1;
 
-    constexpr uint32_t local_state_stream_id = 0;
+    constexpr uint32_t local_handshake_stream_id = 0;
     constexpr uint32_t remote_handshake_stream_id = 1;  // neighbour eth core will write here
     /*
         I-am-mmio-eth-setting-up-remote: 0
         I-am-remote-eth-setting-up-local-eths: 1
-        I-am-remote-eth-that-got-setup-by-a-local: 2
-        I-am-waiting-on-doing-local-handshake: 3
-        I-am-waiting-on-doing-remote-handshake: 4
+        I-am-waiting-on-local-handshake: 3
+        I-am-waiting-on-remote-handshake: 4
         I-am-done-with-handshake: 5 // THIS NEEDS TO BE IN A SEPARATE REGISTER BECAUSE LOCAL HANDSHAKE AND REMOTE
        HANDSHAKE CAN HAPPEN IN PARALLEL
     */
@@ -54,12 +51,13 @@ void kernel_main() {
 
     // use a stream register to set the state (to allow other cores to change its state)- maybe it comes in as a runtime
     // arg?
-    set_state<local_state_stream_id>(initial_state);
+    set_state<local_handshake_stream_id>(0);
     set_state<remote_handshake_stream_id>(0);  // maybe rename set_state
 
     int i = 0;
-    uint32_t state = get_state<local_state_stream_id>();
-    while ((state = get_state<local_state_stream_id>()) != 5) {
+
+    uint32_t state = initial_state;
+    while (state != 5) {
         invalidate_l1_cache();
         // if (i < 5) {
         //     // DPRINT << "My current state is: " << state << ENDL();
@@ -69,17 +67,17 @@ void kernel_main() {
             case 0: {
                 // clobber the initial_state arg with the state that remote eth core should come up in
                 // first send the rt args to the remote core
-                rta_l1_base[0] = 4;  // update this to be 1 later
+                // set additional rt args in the kernel that are the x-y of this core
+                rta_l1_base[0] = multi_eth_cores_setup ? 1 : 4;
                 uint32_t rt_arg_base_addr = get_arg_addr(0);
                 internal_::eth_send_packet<false>(0, rt_arg_base_addr >> 4, rt_arg_base_addr >> 4, 16 >> 4);
 
                 DPRINT << "Sent runtime args to " << HEX() << rt_arg_base_addr << DEC() << ENDL();
 
                 // send the kernel binary
-                internal_::eth_send_packet<false>(
-                    0, dst_binary_address >> 4, dst_binary_address >> 4, binary_size_bytes >> 4);
+                internal_::eth_send_packet<false>(0, binary_address >> 4, binary_address >> 4, binary_size_bytes >> 4);
 
-                DPRINT << "Sent binary to " << HEX() << dst_binary_address << DEC() << ENDL();
+                DPRINT << "Sent binary to " << HEX() << binary_address << DEC() << ENDL();
 
                 // send launch, don't send go msg here because + go msg ... same as what was written on this core
                 internal_::eth_send_packet<false>(
@@ -90,7 +88,25 @@ void kernel_main() {
                        << (launch_msg_addr + (sizeof(launch_msg_t) * launch_msg_buffer_num_entries)) << DEC() << ENDL();
 
                 // now we should go into local handshake state (skip for now) and then go into remote handshake state
-                set_state<local_state_stream_id>(4);
+                uint32_t next_state = multi_eth_cores_setup ? 3 : 4;
+                state = next_state;
+                break;
+            }
+            case 1: {
+                // go over the eth chan header and do case 0 for all cores using noc writes
+                // set additional rt args in the kernel that are the x-y of this core
+
+                break;
+            }
+            case 3: {
+                // if initial state was 1 then keep writing go msg using noc write for all cores that are not me
+
+                // wait for primary eth  to send sync
+
+                // increment some local handshake register indicator on the master ... how do we know which one that is?
+
+                // if not primary eth wait for subordinate eths to send sync
+
                 break;
             }
             case 4: {
@@ -100,12 +116,18 @@ void kernel_main() {
                 internal_::eth_send_packet<false>(0, go_msg_addr >> 4, go_msg_addr >> 4, 16 >> 4);
 
                 // if we just write it once then we will technically continue writing until we change state..?
-                send_handshake_signal<remote_handshake_stream_id>(src_binary_address + binary_size_bytes);
-                // volatile tt_l1_ptr uint32_t* debug_addr_ptr = reinterpret_cast<volatile tt_l1_ptr
+                send_handshake_signal<remote_handshake_stream_id>(0);
+                // volatile tt_l1_ptr uint32_t* handshake_addr_ptr = reinterpret_cast<volatile tt_l1_ptr
+                // uint32_t*>(neighbour_handshake_addr); if (handshake_addr_ptr[0] == 0x39) {
+                //     // this means that the remote eth core has sent us a handshake signal
+                //     // we can now set our state to 5
+                //     state = 5;
+                // }
+
                 // uint32_t*>(src_binary_address + binary_size_bytes);
 
                 if (get_state<remote_handshake_stream_id>() == 1) {
-                    set_state<local_state_stream_id>(5);
+                    state = 5;
                 }
 
                 break;
