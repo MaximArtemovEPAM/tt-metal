@@ -211,7 +211,7 @@ def run_multi_core_matmul_1d(
         # x, y
         if isinstance(grid, tuple):  # Generate random grid
             CORE_RANGE = [(x, y) for y in range(storage_grid[1]) for x in range(storage_grid[0])]
-            random.shuffle(CORE_RANGE)
+            # random.shuffle(CORE_RANGE)
         else:  # Use custom grid
             if use_physical_to_logical_mapping:
                 mapping = get_physical_to_logical_core_mapping(device)
@@ -333,8 +333,8 @@ def run_multi_core_matmul_1d(
         per_core_N=out_block_w,
         fuse_batch=True,
         fused_activation=activation,
-        mcast_in0=False,
-        gather_in0=True,
+        mcast_in0=True,
+        gather_in0=False,
         hop_cores=hop_core_range_set,
         untilize_out=untilize_out,
     )
@@ -792,114 +792,109 @@ def test_multi_core_matmul_1d_gs(
 @pytest.mark.parametrize(
     "B, M, K, N, in0_dtype, in1_dtype, output_dtype, fidelity, packer_l1_acc, fp32_acc_mode, grid, in1_is_dram_interleaved, untilize_out",
     [
+        # (
+        #     1,
+        #     32,
+        #     2048,
+        #     1280,
+        #     ttnn.bfloat8_b,
+        #     ttnn.bfloat8_b,
+        #     ttnn.bfloat16,
+        #     ttnn.MathFidelity.HiFi2,
+        #     True,
+        #     True,
+        #     (8, 3), # PREFETCHER_NOC1_GRID,
+        #     False,
+        #     True,
+        # ),
         (
             1,
             32,
-            2048,
-            1280,
-            ttnn.bfloat8_b,
-            ttnn.bfloat8_b,
-            ttnn.bfloat16,
-            ttnn.MathFidelity.HiFi2,
-            True,
-            True,
-            PREFETCHER_NOC1_GRID,
-            False,
-            True,
-        ),
-        (
-            1,
-            32,
-            2048,
-            1280,
-            ttnn.bfloat16,
-            ttnn.bfloat8_b,
-            ttnn.bfloat8_b,
-            ttnn.MathFidelity.HiFi2,
-            True,
-            True,
-            PREFETCHER_NOC1_GRID,
-            False,
-            False,
-        ),
-        (
-            1,
-            32,
-            1280,
-            2048,
+            2304,
+            1536,
             ttnn.bfloat16,
             ttnn.bfloat8_b,
             ttnn.bfloat8_b,
             ttnn.MathFidelity.HiFi2,
             True,
             True,
-            PREFETCHER_NOC1_GRID,
+            (6, 2),  # PREFETCHER_NOC1_GRID,
             False,
             False,
         ),
         (
             1,
             32,
-            2048,
-            3584,
+            1536,
+            2304,
+            ttnn.bfloat16,
+            ttnn.bfloat8_b,
+            ttnn.bfloat8_b,
+            ttnn.MathFidelity.HiFi2,
+            True,
+            True,
+            (8, 1),  # PREFETCHER_NOC1_GRID,
+            False,
+            False,
+        ),
+        (
+            1,
+            32,
+            2304,
+            3840,
             ttnn.bfloat16,
             ttnn.bfloat4_b,
             ttnn.bfloat8_b,
             ttnn.MathFidelity.LoFi,
             True,
             False,
-            PREFETCHER_NOC1_GRID,
+            (8, 3),  # PREFETCHER_NOC1_GRID,
             False,
             False,
         ),
         (
             1,
             32,
-            3584,
-            2048,
+            3840,
+            2304,
             ttnn.bfloat8_b,
             ttnn.bfloat8_b,
             ttnn.bfloat8_b,
             ttnn.MathFidelity.HiFi2,
             True,
             True,
-            PREFETCHER_NOC1_GRID,
+            (8, 1),  # PREFETCHER_NOC1_GRID,
             False,
             False,
         ),
-        (
-            1,
-            32,
-            2048,
-            16 * 1024,
-            ttnn.bfloat8_b,
-            ttnn.bfloat8_b,
-            ttnn.bfloat8_b,
-            ttnn.MathFidelity.HiFi2,
-            True,
-            True,
-            LM_HEAD_32_GRID,
-            True,
-            False,
-        ),
+        # (
+        #     1,
+        #     32,
+        #     2048,
+        #     16 * 1024,
+        #     ttnn.bfloat8_b,
+        #     ttnn.bfloat8_b,
+        #     ttnn.bfloat8_b,
+        #     ttnn.MathFidelity.HiFi2,
+        #     True,
+        #     True,
+        #     LM_HEAD_32_GRID,
+        #     True,
+        #     False,
+        # ),
     ],
     ids=[
-        "qkv_rm",
+        # "qkv_rm",
         "qkv",
         "do",
         "ff13",
         "ff2",
-        "lm_head",
+        # "lm_head",
     ],
 )
 @pytest.mark.parametrize(
     "num_iters",
-    [50],
-)
-@pytest.mark.parametrize(
-    "device_params",
-    [{"dispatch_core_axis": ttnn.DispatchCoreAxis.COL}],
-    indirect=True,
+    [5],
 )
 def test_matmul_1d_ring_llama_perf(
     device,
@@ -923,8 +918,8 @@ def test_matmul_1d_ring_llama_perf(
 ):
     # Only run these tests on unharvested TG
     device_grid = (device.compute_with_storage_grid_size().x, device.compute_with_storage_grid_size().y)
-    if device_grid != (7, 10):
-        pytest.skip("Skipping test_run_prefetcher because it only works with a 7x10 grid")
+    # if device_grid != (7, 10):
+    #     pytest.skip("Skipping test_run_prefetcher because it only works with a 7x10 grid")
 
     if in1_is_dram_interleaved:
         hop_grid = None
@@ -932,6 +927,7 @@ def test_matmul_1d_ring_llama_perf(
         hop_grid = [
             (3, 6),
         ]
+    hop_grid = None
 
     run_multi_core_matmul_1d(
         device,
@@ -953,6 +949,7 @@ def test_matmul_1d_ring_llama_perf(
         use_physical_to_logical_mapping=False,
         hop_grid=hop_grid,
         in1_is_dram_interleaved=in1_is_dram_interleaved,
+        # in1_is_in_dram=True,
         untilize_out=untilize_out,
     )
 

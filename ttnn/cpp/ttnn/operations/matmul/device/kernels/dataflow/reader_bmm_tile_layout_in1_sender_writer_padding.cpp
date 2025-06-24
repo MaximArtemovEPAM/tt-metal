@@ -145,12 +145,17 @@ void kernel_main() {
     cb_reserve_back(cb_id_in1, in1_block_num_tiles * num_blocks_inner_dim);
     cb_push_back(cb_id_in1, in1_block_num_tiles * num_blocks_inner_dim);
 #else
+
     uint32_t l1_write_addr_in1;
 
     constexpr DataFormat in1_data_format = get_dataformat(cb_id_in1);
     const InterleavedAddrGenFast<in1_is_dram, in1_tile_hw> s1 = {
         .bank_base_address = in1_tensor_addr, .page_size = in1_single_tile_size_bytes, .data_format = in1_data_format};
 #endif
+
+    // cb_reserve_back(cb_id_in1, in1_block_num_tiles * num_blocks_inner_dim);
+    // cb_push_back(cb_id_in1, in1_block_num_tiles * num_blocks_inner_dim);
+    // return;
 
     //  WRITER
     constexpr uint32_t cb_id_out0 = tt::CBIndex::c_4;

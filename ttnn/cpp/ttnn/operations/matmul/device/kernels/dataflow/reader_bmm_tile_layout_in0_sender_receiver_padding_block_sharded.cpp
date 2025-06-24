@@ -129,6 +129,7 @@ void kernel_main() {
             for (uint32_t bw = 0; bw < num_blocks_w_dim; ++bw) {
                 uint32_t in0_tensor_current_inner_dim_block_start_addr = in0_tensor_current_h_dim_block_start_addr;
                 for (uint32_t block = 0; block < num_blocks_inner_dim; ++block) {
+                    DeviceZoneScopedN("activations_block");
                     uint32_t block_id = block / num_blocks_per_shard;
                     // If used fused op, make block_id conform to ordering of tensor slices from all
                     // gather

@@ -8,6 +8,7 @@
 #include "compute_kernel_api/pack_untilize.h"
 #include "compute_kernel_api/tile_move_copy.h"
 #include "mod_div_lib.h"
+#include "tools/profiler/kernel_profiler.hpp"
 
 #ifdef FUSE_BIAS
 #include "compute_kernel_api/bcast.h"
@@ -135,7 +136,7 @@ void MAIN {
     constexpr uint32_t in1_transpose_tile = false;
 #endif
 
-    constexpr bool spill = num_blocks_inner_dim > 1;
+    constexpr bool spill = true;  // num_blocks_inner_dim > 1;
 
     mm_block_init(
         in0_cb_id, in1_cb_id, mm_partials_cb_id, in1_transpose_tile, out_subblock_w, out_subblock_h, in0_block_w);
@@ -157,6 +158,8 @@ void MAIN {
                 }
 
                 for (uint32_t block = 0; block < num_blocks_inner_dim; block++) {
+                    DeviceZoneScopedN("compute_block");
+
                     bool last_out = block == (num_blocks_inner_dim - 1);
 // Configure packer once for pack out without Bias
 #if not defined FUSE_BIAS and defined PACK_RELU
@@ -166,7 +169,10 @@ void MAIN {
                     }
 #endif
 
-                    cb_wait_front(in0_cb_id, in0_block_num_tiles);
+                    {
+                        DeviceZoneScopedN("wait_in0");
+                        cb_wait_front(in0_cb_id, in0_block_num_tiles);
+                    }
                     cb_wait_front(in1_cb_id, in1_block_num_tiles);
 
                     int in0_index_subblock_offset = 0;
@@ -249,7 +255,8 @@ void MAIN {
                                 tile_regs_release();
                                 cb_push_back(mm_out_cb_id, out_subblock_num_tiles);
 
-                            } else {
+                            } else if (spill) {
+                                DeviceZoneScopedN("spill_reload");
                                 tile_regs_commit();
                                 // Wait for tiles in output buffer to be written out since interm and output share
                                 // memory
@@ -292,14 +299,17 @@ void MAIN {
                     // never reload when with bias, bias uses interm buffer
                     enable_reload = false;
 #else
-                    // Last iteration does spill and reload to output buffer
-                    if (block < num_blocks_inner_dim - 2) {
-                        cb_wait_front(mm_partials_cb_id, out_block_num_tiles);
-                        cb_pop_front(mm_partials_cb_id, out_block_num_tiles);
+                    {
+                        DeviceZoneScopedN("spill_reload");
+                        // Last iteration does spill and reload to output buffer
+                        if (block < num_blocks_inner_dim - 2 && spill) {
+                            cb_wait_front(mm_partials_cb_id, out_block_num_tiles);
+                            cb_pop_front(mm_partials_cb_id, out_block_num_tiles);
+                        }
+                        if (block == num_blocks_inner_dim - 2 && spill) {
+                            enable_reload = true;
+                        }  // reload when last iteration
                     }
-                    if (block == num_blocks_inner_dim - 2) {
-                        enable_reload = true;
-                    }  // reload when last iteration
 #endif
 #else
                     if constexpr (spill) {

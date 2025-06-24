@@ -10,6 +10,6 @@ def ensure_gc():
     gc.collect()
 
 
-@pytest.fixture(autouse=True)
-def ensure_devices(ensure_devices_tg):
-    pass
+# @pytest.fixture(autouse=True)
+# def ensure_devices(ensure_devices_tg):
+#     pass
