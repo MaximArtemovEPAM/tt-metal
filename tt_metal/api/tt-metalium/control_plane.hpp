@@ -65,6 +65,8 @@ public:
     std::optional<RoutingDirection> get_forwarding_direction(
         FabricNodeId src_fabric_node_id, FabricNodeId dst_fabric_node_id) const;
 
+    RoutingDirection get_routing_direction_between_neighboring_meshes(MeshId src_mesh_id, MeshId dest_mesh_id) const;
+
     // Return eth channels that can forward the data from src to dest.
     // This will be a subset of the active routers in a given direction since some channels could be
     // reserved along the way for tunneling etc.
@@ -92,6 +94,9 @@ public:
 
     size_t get_num_available_routing_planes_in_direction(
         FabricNodeId fabric_node_id, RoutingDirection routing_direction) const;
+
+    std::vector<chan_id_t> get_active_intermesh_links_in_direction(
+        const FabricNodeId& fabric_node_id, RoutingDirection routing_direction) const;
 
     std::set<std::pair<chan_id_t, eth_chan_directions>> get_active_fabric_eth_channels(
         FabricNodeId fabric_node_id) const;

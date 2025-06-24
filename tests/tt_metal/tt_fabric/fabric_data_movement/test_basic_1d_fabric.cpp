@@ -185,8 +185,9 @@ void RunMultiMeshLineMcast(
         std::vector<chan_id_t> eth_chans;
         chan_id_t edm_port;
         if (control_plane.has_intermesh_links(request_phys_id)) {
-            auto eth_cores_and_chans = control_plane.get_intermesh_eth_links(request_phys_id);
-            for (const auto& [core, chan] : eth_cores_and_chans) {
+            auto intermesh_routing_direction = control_plane.get_routing_direction_between_neighboring_meshes(mcast_request_node.mesh_id, mcast_start_node.mesh_id);
+            auto eth_cores_and_chans = control_plane.get_active_intermesh_links_in_direction(mcast_request_node, intermesh_routing_direction);
+            for (auto chan : eth_cores_and_chans) {
                 if (control_plane.get_routing_plane_id(mcast_request_node, chan) == 0) {
                     eth_chans.push_back(chan);
                 }
@@ -585,8 +586,9 @@ void RunTestUnicastRaw(
         chip_id_t edge_chip = 0;
         std::vector<chan_id_t> eth_chans;
         if (control_plane.has_intermesh_links(src_physical_device_id)) {
-            auto eth_cores_and_chans = control_plane.get_intermesh_eth_links(src_physical_device_id);
-            for (const auto& [core, chan] : eth_cores_and_chans) {
+            auto intermesh_routing_direction = control_plane.get_routing_direction_between_neighboring_meshes(src_fabric_node_id.mesh_id, dst_fabric_node_id.mesh_id);
+            auto eth_cores_and_chans = control_plane.get_active_intermesh_links_in_direction(src_fabric_node_id, intermesh_routing_direction);
+            for (auto chan : eth_cores_and_chans) {
                 if (control_plane.get_routing_plane_id(src_fabric_node_id, chan) == 0) {
                     eth_chans.push_back(chan);
                 }

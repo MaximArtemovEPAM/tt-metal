@@ -905,7 +905,7 @@ void ControlPlane::configure_routing_tables_for_fabric_ethernet_channels(tt_meta
     this->intra_mesh_routing_tables_.clear();
     this->inter_mesh_routing_tables_.clear();
     this->router_port_directions_to_physical_eth_chan_map_.clear();
-
+    this->exchange_intermesh_link_tables();
     const auto& intra_mesh_connectivity = this->routing_table_generator_->mesh_graph->get_intra_mesh_connectivity();
     const auto& inter_mesh_connectivity = this->routing_table_generator_->mesh_graph->get_inter_mesh_connectivity();
 
@@ -992,6 +992,7 @@ void ControlPlane::configure_routing_tables_for_fabric_ethernet_channels(tt_meta
                 this->logical_mesh_chip_id_to_physical_chip_id_mapping_.at(FabricNodeId(MeshId{mesh_id}, chip_id));
             auto board_id = this->has_intermesh_links(physical_chip_id) ? chip_id_to_asic_id_.at(physical_chip_id) : 0;
             auto intermesh_links = this->get_intermesh_eth_links(physical_chip_id);
+
             for (const auto& [eth_core, eth_chan] : intermesh_links) {
                 auto intermesh_routing_direction = RoutingDirection::NONE;
                 auto curr_eth_chan_desc = EthChanDescriptor{.board_id = board_id, .chan_id = eth_chan};
@@ -1007,8 +1008,6 @@ void ControlPlane::configure_routing_tables_for_fabric_ethernet_channels(tt_meta
                         }
                     }
                 }
-                std::cout << "Mesh ID: " << mesh_id
-                          << " Routing Direction: " << static_cast<uint32_t>(intermesh_routing_direction) << std::endl;
                 FabricNodeId fabric_node_id{MeshId{mesh_id}, chip_id};
                 this->router_port_directions_to_physical_eth_chan_map_.at(fabric_node_id)[intermesh_routing_direction]
                     .push_back(eth_chan);
@@ -1026,8 +1025,21 @@ void ControlPlane::configure_routing_tables_for_fabric_ethernet_channels(tt_meta
     // Trim the ethernet channels that don't map to live fabric routing planes.
     // NOTE: This MUST be called after ordering ethernet channels
     this->trim_ethernet_channels_not_mapped_to_live_routing_planes();
-
     this->convert_fabric_routing_table_to_chip_routing_table();
+}
+
+RoutingDirection ControlPlane::get_routing_direction_between_neighboring_meshes(MeshId src_mesh_id, MeshId dest_mesh_id) const {
+    const auto& inter_mesh_connectivity = this->routing_table_generator_->mesh_graph->get_inter_mesh_connectivity();
+    for (std::uint32_t chip_id = 0; chip_id < inter_mesh_connectivity[*src_mesh_id].size(); chip_id++) {
+        const auto& chip_edges = inter_mesh_connectivity[*src_mesh_id][chip_id];
+        for (const auto& [connected_mesh_id, edge] : chip_edges) {
+            if (connected_mesh_id == dest_mesh_id) {
+                return edge.port_direction;
+            }
+        }
+    }
+    TT_FATAL(false, "No routing direction found between M{} and M{}", src_mesh_id, dest_mesh_id);
+    return RoutingDirection::NONE;
 }
 
 void ControlPlane::write_routing_tables_to_chip(MeshId mesh_id, chip_id_t chip_id) const {
@@ -1379,6 +1391,30 @@ size_t ControlPlane::get_num_available_routing_planes_in_direction(
         return this->router_port_directions_to_num_routing_planes_map_.at(fabric_node_id).at(routing_direction);
     }
     return 0;
+}
+
+std::vector<chan_id_t> ControlPlane::get_active_intermesh_links_in_direction(const FabricNodeId& fabric_node_id, RoutingDirection routing_direction) const {
+    auto physical_chip_id = this->get_physical_chip_id_from_fabric_node_id(fabric_node_id);
+    TT_FATAL(this->has_intermesh_links(physical_chip_id),
+             "Trying to get intermesh links for Fabric Node D{}M{} which does not have intermesh links", fabric_node_id.chip_id, fabric_node_id.mesh_id);
+
+    const auto& intermesh_links = this->get_intermesh_eth_links(physical_chip_id);
+    auto& links_in_direction =
+        this->router_port_directions_to_physical_eth_chan_map_.at(fabric_node_id).at(routing_direction);
+    
+    std::vector<chan_id_t> intermesh_links_in_direction;
+
+    for (auto [eth_core, link] : intermesh_links) {
+        if (std::find(links_in_direction.begin(), links_in_direction.end(), link) != links_in_direction.end()) {
+            intermesh_links_in_direction.push_back(link);
+        }
+    }
+    TT_FATAL(!intermesh_links_in_direction.empty(),
+             "No intermesh links found in direction {} for Fabric Node D{}M{}",
+             magic_enum::enum_name(routing_direction),
+             fabric_node_id.chip_id,
+             fabric_node_id.mesh_id);
+    return intermesh_links_in_direction;
 }
 
 void ControlPlane::write_routing_tables_to_all_chips() const {
