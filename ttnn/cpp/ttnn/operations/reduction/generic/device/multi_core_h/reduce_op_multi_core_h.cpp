@@ -45,11 +45,9 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
     tt_metal::IDevice* device = a.device();
 
     bool in_sharded = a.is_sharded();
-    bool use_nd_sharding = in_sharded && !a.shard_spec().has_value();
+    bool use_nd_sharding = in_sharded && a.nd_shard_spec().has_value();
     bool out_sharded = output.is_sharded();
     auto compute_with_storage_grid_size = device->compute_with_storage_grid_size();
-    uint32_t num_cores_x = compute_with_storage_grid_size.x;
-    uint32_t num_cores_y = compute_with_storage_grid_size.y;
     auto num_cols = NC * Wt;
     auto [num_cores, all_cores, core_group_1, core_group_2, num_cols_per_core_group_1, num_cols_per_core_group_2] =
         tt::tt_metal::split_work_to_cores(compute_with_storage_grid_size, num_cols);
@@ -123,6 +121,15 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
 
     uint32_t chunk_size = (out_sharded && !use_nd_sharding) ? 1 : ttnn::get_dest_reg_count(compute_kernel_config);
 
+    auto compute_buffer_distribution_spec = [](const Tensor& tensor) -> BufferDistributionSpec {
+        auto shape = tensor.padded_shape();
+        auto& nd_shard_spec = tensor.nd_shard_spec().value();
+        const Shape2D physical_size = tensor.tensor_spec().tensor_layout().compute_physical_shape(shape);
+        const Shape2D page_shape = tensor.tensor_spec().tensor_layout().compute_page_shape(physical_size);
+        return BufferDistributionSpec::from_shard_spec(
+            shape, nd_shard_spec.shard_shape, page_shape, nd_shard_spec.grid, nd_shard_spec.orientation);
+    };
+
     if (in_sharded && !use_nd_sharding) {
         std::vector<uint32_t> reader_compile_time_args = {src0_cb_index, src1_cb_index, scaler_cb_index};
         std::map<string, string> reader_defines;
@@ -143,7 +150,7 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
             auto tile = a.tensor_spec().tile().get_tile_shape();
             int tile_elements = tile[0] * tile[1];
             int aligned_page_size = src0_buffer->aligned_page_size();
-            const auto input_buffer_distribution_spec = src0_buffer->buffer_distribution_spec().value();
+            const auto input_buffer_distribution_spec = compute_buffer_distribution_spec(a);
             const auto input_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
                 *device->get_mesh_device().get(), input_buffer_distribution_spec, src0_buffer->core_type());
             reader_defines["USE_ND_SHARDING"] = "1";
@@ -181,7 +188,7 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
         int output_aligned_page_size = dst_buffer->aligned_page_size();
         auto output_tile = output.tensor_spec().tile().get_tile_shape();
         uint32_t output_tile_elements = output_tile[0] * output_tile[1];
-        const auto output_buffer_distribution_spec = dst_buffer->buffer_distribution_spec().value();
+        const auto output_buffer_distribution_spec = compute_buffer_distribution_spec(output);
         const auto output_bank_base_address = output.mesh_buffer()->address();
         const auto output_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
             *device->get_mesh_device().get(), output_buffer_distribution_spec, dst_buffer->core_type());
