@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -12,11 +13,11 @@ from loguru import logger
 from transformers import AutoConfig
 
 import ttnn
-
-# Import from local reference files instead of HuggingFace
-from models.demos.deepseek_v3.reference.modeling_deepseek import DeepseekV3Attention
 from models.demos.deepseek_v3.tt.mla_1d import MLA_1D
 from models.demos.deepseek_v3.utils.run_config import create_run_config
+
+# Import from local reference files instead of HuggingFace
+from models.demos.deepseek_v3_impl.model import MLA, ModelArgs
 from models.utility_functions import comp_pcc
 
 
@@ -38,7 +39,11 @@ def hf_config():
 @pytest.fixture
 def reference_model(hf_config):
     """Get the actual DeepSeek MLP model using local implementation."""
-    return DeepseekV3Attention(hf_config)
+
+    config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
+    with open(config_path) as f:
+        model_args = ModelArgs(**json.load(f))
+    return MLA(model_args)
 
 
 def get_mesh_device():
@@ -176,7 +181,7 @@ def test_forward_pass(
     tt_input = ttnn.from_torch(
         torch_input.permute(1, 0, 2).unsqueeze(0),
         device=mesh_device,
-        mesh_mapper=ttnn.ShardTensor2DMesh(mesh_device, dims=(-1, None), mesh_shape=list(mesh_device.shape)),
+        mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, dims=(-1, None), mesh_shape=list(mesh_device.shape)),
         dtype=ttnn.bfloat16,
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
         layout=ttnn.TILE_LAYOUT,

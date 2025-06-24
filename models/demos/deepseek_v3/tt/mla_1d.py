@@ -79,7 +79,7 @@ class MLA_1D(AbstractModule):
         # wq_a
         hf_name = "q_a_proj"
         our_name = hf_ttnn_name_mapping[hf_name]
-        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
         if num_devices == 1:
@@ -102,7 +102,7 @@ class MLA_1D(AbstractModule):
         # wq_b
         hf_name = "q_b_proj"
         our_name = hf_ttnn_name_mapping[hf_name]
-        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
         if num_devices == 1:
@@ -125,7 +125,7 @@ class MLA_1D(AbstractModule):
         # wkv_a
         hf_name = "kv_a_proj_with_mqa"
         our_name = hf_ttnn_name_mapping[hf_name]
-        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
         if num_devices == 1:
@@ -148,7 +148,7 @@ class MLA_1D(AbstractModule):
         # wkv_b1
         hf_name = "kv_b_proj"
         our_name = hf_ttnn_name_mapping[hf_name]
-        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = state_dict[f"{our_name}.weight"]
 
         # This weight needs to be split
         torch_weight = torch_weight.view(kv_lora_rank, num_heads * (qk_nope_head_dim + v_head_dim))
@@ -194,7 +194,7 @@ class MLA_1D(AbstractModule):
         # wo
         hf_name = "o_proj"
         our_name = hf_ttnn_name_mapping[hf_name]
-        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
         if num_devices == 1:
