@@ -168,6 +168,9 @@ void time_run(
     //
     auto start = std::chrono::high_resolution_clock::now();
     std::vector<ttnn::Tensor> res = fn(inputs);
+    for (auto& t : res) {
+        ttnn::Tensor host_tensor = ttnn::from_device(t, /*blocking=*/true);
+    }
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
 
