@@ -10,11 +10,11 @@
 #include <tt-metalium/device_pool.hpp>
 #include "ttnn/operations/ccl/ccl_common.hpp"
 #include "ttnn/operations/experimental/ccl/all_gather_async/device/all_gather_async_op.hpp"
-#include "cpp/ttnn/operations/ccl/shared_with_host/sharded_tensor_addr_gen.hpp"
-#include "cpp/ttnn/operations/ccl/sharding_addrgen_helper.hpp"
+#include "ttnn/operations/ccl/shared_with_host/sharded_tensor_addr_gen.hpp"
+#include "ttnn/operations/ccl/sharding_addrgen_helper.hpp"
 #include <tt-metalium/core_coord.hpp>
 #include <tt-metalium/erisc_datamover_builder.hpp>
-#include "cpp/ttnn/operations/ccl/common/host/ccl_worker_builder.hpp"
+#include "ttnn/operations/ccl/common/host/ccl_worker_builder.hpp"
 #include <tt-metalium/sub_device.hpp>
 #include <tt-metalium/fabric.hpp>
 
@@ -337,13 +337,13 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
 
     std::map<std::string, std::string> reader_defines = {{"DEVICE_ORDER", device_order}};
 
-    const auto& input_shape = input_tensor.get_logical_shape();
+    const auto& input_shape = input_tensor.logical_shape();
     const auto dim = operation_attributes.dim;
     uint32_t rank = input_shape.size();
     auto& q_output_tensor = tensor_return_value[0];
     auto& k_output_tensor = tensor_return_value[1];
     auto& v_output_tensor = tensor_return_value[2];
-    auto input_tensor_width = input_tensor.get_logical_shape()[-1];
+    auto input_tensor_width = input_tensor.logical_shape()[-1];
     auto input_shard_spec = input_tensor.shard_spec().value();
     auto q_output_shard_spec = q_output_tensor.shard_spec().value();
     auto k_output_shard_spec = k_output_tensor.shard_spec().value();
@@ -403,7 +403,7 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
         v_num_cores);
 
     auto packet_buffer = tensor_args.intermediate_packet_buffer.buffer();
-    tt::DataFormat cb_data_format = tt::tt_metal::datatype_to_dataformat_converter(input_tensor.get_dtype());
+    tt::DataFormat cb_data_format = tt::tt_metal::datatype_to_dataformat_converter(input_tensor.dtype());
 
     uint32_t input_block_size = input_sticks_per_device * input_shard_width * input_tensor.element_size();
     uint32_t input_page_size = input_shard_width * input_tensor.element_size();
@@ -424,8 +424,8 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
     tt::tt_metal::Program program{};
 
     auto fabric_max_packet_size = tt::tt_fabric::get_tt_fabric_channel_buffer_size_bytes();
-    size_t packet_size_bytes = input_tensor.get_dtype() == DataType::BFLOAT16 ? std::bit_floor(fabric_max_packet_size)
-                                                                              : fabric_max_packet_size;
+    size_t packet_size_bytes =
+        input_tensor.dtype() == DataType::BFLOAT16 ? std::bit_floor(fabric_max_packet_size) : fabric_max_packet_size;
     uint32_t num_blocks_per_packet = packet_size_bytes / input_block_size;
     uint32_t per_worker_num_blocks = (ncores_input + num_links - 1) / num_links;
 
@@ -668,7 +668,9 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
         all_cores_grid,
         tt_metal::DataMovementConfig{
             .processor = DataMovementProcessor::RISCV_1,
-            .noc = NOC::RISCV_1_default,
+            .noc = operation_attributes.use_noc1_only ? NOC::NOC_1 : NOC::RISCV_1_default,
+            .noc_mode = (operation_attributes.use_noc1_only) ? tt_metal::NOC_MODE::DM_DYNAMIC_NOC
+                                                             : tt_metal::NOC_MODE::DM_DEDICATED_NOC,
             .compile_args = reader_compile_time_args,
             .defines = reader_defines});
 
@@ -703,7 +705,9 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
         all_cores_grid,
         tt_metal::DataMovementConfig{
             .processor = DataMovementProcessor::RISCV_0,
-            .noc = NOC::RISCV_0_default,
+            .noc = operation_attributes.use_noc1_only ? NOC::NOC_1 : NOC::RISCV_0_default,
+            .noc_mode = (operation_attributes.use_noc1_only) ? tt_metal::NOC_MODE::DM_DYNAMIC_NOC
+                                                             : tt_metal::NOC_MODE::DM_DEDICATED_NOC,
             .compile_args = writer_compile_time_args,
             .defines = writer_defines});
 
@@ -756,10 +760,8 @@ LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads::cre
     bool forward_fabric_connection = false, backward_fabric_connection = false;
     if (operation_attributes.topology == ttnn::ccl::Topology::Linear) {
         LineTopology line_topology(ring_size, ring_index);
-        forward_fabric_connection =
-            !(line_topology.is_first_device_in_line(ttnn::ccl::EdmLineFabricOpInterface::Direction::BACKWARD));
-        backward_fabric_connection =
-            !(line_topology.is_last_device_in_line(ttnn::ccl::EdmLineFabricOpInterface::Direction::BACKWARD));
+        forward_fabric_connection = !(line_topology.is_first_device_in_line(ttnn::ccl::LineDirection::BACKWARD));
+        backward_fabric_connection = !(line_topology.is_last_device_in_line(ttnn::ccl::LineDirection::BACKWARD));
     } else if (operation_attributes.topology == ttnn::ccl::Topology::Ring) {
         forward_fabric_connection = true;
         backward_fabric_connection = true;
@@ -863,7 +865,14 @@ void LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads
 
         const auto& input_tensor = tensor_args.input_tensor;
         const auto& intermediate_packet_buffer = tensor_args.intermediate_packet_buffer;
-        auto& output_tensor = tensor_return_value;
+        auto& output_tensors = tensor_return_value;
+        auto& output_tensor_q = output_tensors.at(0);
+        auto& output_tensor_k = output_tensors.at(1);
+        auto& output_tensor_v = output_tensors.at(2);
+
+        uint32_t q_base_addr = output_tensor_q.buffer()->address();
+        uint32_t k_base_addr = output_tensor_k.buffer()->address();
+        uint32_t v_base_addr = output_tensor_v.buffer()->address();
 
         auto input_tensor_buffer = input_tensor.buffer();
         auto packet_buffer = intermediate_packet_buffer.buffer();
@@ -878,8 +887,15 @@ void LlamaReduceScatterCreateHeadsDeviceOperation::LlamaReduceScatterCreateHeads
         for (const auto& core : cores) {
             auto& writer_runtime_args = tt::tt_metal::GetRuntimeArgs(program, unary_writer_kernel_id, core);
             writer_runtime_args[0] = (uint32_t)operation_attributes.cross_device_semaphore->address();
+            writer_runtime_args[8] = q_base_addr;
+            writer_runtime_args[9] = k_base_addr;
+            writer_runtime_args[10] = v_base_addr;
+
             auto& reader_runtime_args = tt::tt_metal::GetRuntimeArgs(program, unary_reader_kernel_id, core);
             reader_runtime_args[0] = (uint32_t)operation_attributes.cross_device_semaphore->address();
+            reader_runtime_args[10] = q_base_addr;
+            reader_runtime_args[11] = k_base_addr;
+            reader_runtime_args[12] = v_base_addr;
         }
     }
 }

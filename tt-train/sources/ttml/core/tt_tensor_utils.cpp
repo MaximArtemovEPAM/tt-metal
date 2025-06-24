@@ -96,12 +96,10 @@ std::vector<tt::tt_metal::HostBuffer> get_as(const ttnn::Tensor& tensor) {
             if constexpr (std::is_same_v<StorageType, tt::tt_metal::HostStorage>) {
                 return {storage.buffer};
             } else if constexpr (std::is_same_v<StorageType, tt::tt_metal::MultiDeviceHostStorage>) {
-                auto num_buffers = storage.num_buffers();
                 std::vector<tt::tt_metal::HostBuffer> buffers;
-                buffers.reserve(num_buffers);
-                for (uint32_t i = 0; i < num_buffers; ++i) {
-                    buffers.push_back(storage.get_buffer(i));
-                }
+                buffers.reserve(storage.distributed_buffer().shard_coords().size());
+                storage.distributed_buffer().apply(
+                    [&buffers](const tt::tt_metal::HostBuffer& shard) { buffers.push_back(shard); });
                 return buffers;
             } else {
                 throw std::runtime_error("Tensor must be on host");
@@ -143,12 +141,11 @@ template <class T, ttnn::DataType TensorType>
 [[nodiscard]] tt::tt_metal::Tensor from_xtensors_to_host(
     const std::vector<xt::xarray<T>>& buffers, const std::unordered_map<std::string, std::string>& config) {
     std::vector<tt::tt_metal::HostBuffer> host_owned_buffers;
-    std::vector<ttnn::TensorSpec> host_owned_specs;
     host_owned_buffers.reserve(buffers.size());
-    host_owned_specs.reserve(buffers.size());
     if (buffers.empty()) {
         throw std::runtime_error("Cannot create a host buffer from an empty vector of xtensors!");
     }
+
     auto first_shape = buffers.front().shape();
     for (int i = 0; i < buffers.size(); ++i) {
         if (buffers[i].shape() != first_shape) {
@@ -158,27 +155,25 @@ template <class T, ttnn::DataType TensorType>
                 ttnn::experimental::xtensor::get_shape_from_xarray(buffers[i])));
         }
     }
-    for (const auto& buffer : buffers) {
-        auto shape = ttnn::experimental::xtensor::get_shape_from_xarray(buffer);
+    auto tensor_spec = ttnn::TensorSpec(
+        ttnn::experimental::xtensor::get_shape_from_xarray(buffers.front()),
+        ttnn::TensorLayout(TensorType, ttnn::PageConfig(ttnn::Layout::ROW_MAJOR), ttnn::MemoryConfig{}));
 
+    for (const auto& buffer : buffers) {
         if constexpr (std::is_same_v<T, float>) {
             auto owned_buffer =
                 create_owned_buffer_from_vector_of_floats(std::vector<T>(buffer.begin(), buffer.end()), TensorType);
-            host_owned_buffers.push_back(owned_buffer);
+            host_owned_buffers.push_back(std::move(owned_buffer));
         } else {
             auto owned_buffer = tt::tt_metal::HostBuffer(std::vector<T>(buffer.begin(), buffer.end()));
-            host_owned_buffers.push_back(owned_buffer);
+            host_owned_buffers.push_back(std::move(owned_buffer));
         }
-
-        host_owned_specs.push_back(ttnn::TensorSpec(
-            shape, ttnn::TensorLayout(TensorType, ttnn::PageConfig(ttnn::Layout::ROW_MAJOR), ttnn::MemoryConfig{})));
     }
-    auto distributed_tensor_config = tt::tt_metal::get_distributed_tensor_config(config);
-    auto storage = tt::tt_metal::MultiDeviceHostStorage(std::move(host_owned_buffers), host_owned_specs);
 
-    // remove possible paddings from the shape (it conflicts with ROW MAJOR)
-    auto output = ttnn::Tensor(std::move(storage), host_owned_specs[0], distributed_tensor_config);
-    return output;
+    return ttnn::Tensor(
+        tt::tt_metal::MultiDeviceHostStorage(std::move(host_owned_buffers)),
+        tensor_spec,
+        tt::tt_metal::get_distributed_tensor_config(config));
 }
 
 template tt::tt_metal::Tensor from_xtensors_to_host<float, ttnn::DataType::BFLOAT16>(
@@ -210,7 +205,7 @@ tt::tt_metal::Tensor from_vector<float, ttnn::DataType::BFLOAT16>(
     // Temporary workaround for the issue with tilize for large size
     // https://github.com/tenstorrent/tt-metal/issues/15950
     if (shape[-1] >= MAX_TILE_DIMENSION && layout == ttnn::Layout::TILE) {
-        output = ttnn::to_layout(output, ttnn::Layout::TILE, std::nullopt, output_mem_config, device);
+        output = ttnn::to_layout(output, ttnn::Layout::TILE, std::nullopt, output_mem_config);
         output = ttnn::to_device(output, device, output_mem_config);
     } else {
         output = ttnn::to_device(output, device, output_mem_config);
@@ -256,7 +251,7 @@ tt::tt_metal::Tensor from_vector<uint32_t, ttnn::DataType::UINT32>(
         ttml_create_owned_tensor(std::move(buffer_copy), shape, ttnn::DataType::UINT32, ttnn::Layout::ROW_MAJOR);
     if (device != nullptr) {
         if (layout != ttnn::Layout::ROW_MAJOR) {
-            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config, device);
+            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config);
         }
         output = ttnn::to_device(output, device, output_mem_config);
     }
@@ -286,7 +281,7 @@ tt::tt_metal::Tensor from_vector<int32_t, ttnn::DataType::INT32>(
         ttml_create_owned_tensor(std::move(buffer_copy), shape, ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR);
     if (device != nullptr) {
         if (layout != ttnn::Layout::ROW_MAJOR) {
-            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config, device);
+            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config);
         }
         output = ttnn::to_device(output, device, output_mem_config);
     }
@@ -323,7 +318,7 @@ tt::tt_metal::Tensor from_xtensor(
 
     if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t>) {
         if (layout != ttnn::Layout::ROW_MAJOR) {
-            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config, device);
+            output = ttnn::to_layout(output, layout, std::nullopt, output_mem_config);
         }
         output = ttnn::to_device(output, device, output_mem_config);
     } else {

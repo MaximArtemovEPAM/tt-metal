@@ -13,7 +13,7 @@
 #include <tt-metalium/distributed.hpp>
 #include <tt-metalium/buffer_distribution_spec.hpp>
 
-#include "ttnn/cpp/ttnn/operations/sharding_utilities.hpp"
+#include "ttnn/operations/sharding_utilities.hpp"
 
 namespace sharded_accessor_device_tests {
 
@@ -53,8 +53,7 @@ create_replicated_input_and_output_mesh_buffers_from_inputs(
     const tt::tt_metal::distributed::DeviceLocalBufferConfig input_device_local_config{
         .page_size = page_size,
         .buffer_type = inputs.input_shard_spec.buffer_type,
-        .buffer_layout = tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-        .shard_parameters = input_buffer_distribution_spec,
+        .sharding_args = input_buffer_distribution_spec,
     };
     const auto input_mesh_buffer =
         tt::tt_metal::distributed::MeshBuffer::create(mesh_buffer_config, input_device_local_config, mesh_device);
@@ -69,8 +68,7 @@ create_replicated_input_and_output_mesh_buffers_from_inputs(
     const tt::tt_metal::distributed::DeviceLocalBufferConfig output_device_local_config{
         .page_size = page_size,
         .buffer_type = inputs.output_shard_spec.buffer_type,
-        .buffer_layout = tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-        .shard_parameters = output_buffer_distribution_spec,
+        .sharding_args = output_buffer_distribution_spec,
     };
     const auto output_mesh_buffer =
         tt::tt_metal::distributed::MeshBuffer::create(mesh_buffer_config, output_device_local_config, mesh_device);
@@ -130,7 +128,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
         tt::test_utils::generate_uniform_random_vector<uint8_t>(0, UINT8_MAX, host_size_in_bytes / sizeof(uint8_t));
 
     {
-        tt::log_info("Writing input buffer to device");
+        log_info(tt::LogTest, "Writing input buffer to device");
         std::vector<tt::tt_metal::distributed::MeshCommandQueue::ShardDataTransfer> shard_data_transfer{{
             .shard_coord = tt::tt_metal::distributed::MeshCoordinate{0, 0},
             .host_data = const_cast<void*>(reinterpret_cast<const void*>(src.data())),
@@ -149,7 +147,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
      *   - For row major layout, need to handle shard shapes with different widths (ie. last dim) properly
      */
     {
-        tt::log_info("Creating single-core reshard program");
+        log_info(tt::LogTest, "Creating single-core reshard program");
         auto program = CreateProgram();
 
         constexpr CoreCoord grid = {0, 0};
@@ -169,7 +167,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
 
         // Set up compile-time args for reader kernel
         const auto& input_buffer_distribution_spec =
-            std::get<BufferDistributionSpec>(input_mesh_buffer->device_local_config().shard_parameters.value());
+            *input_mesh_buffer->device_local_config().sharding_args.buffer_distribution_spec();
         const auto input_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
             *mesh_device_, input_buffer_distribution_spec, input_shard_view->core_type());
         std::vector<uint32_t> input_compile_time_args = {
@@ -183,7 +181,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
 
         // Set up compile-time args for writer kernel
         const auto& output_buffer_distribution_spec =
-            std::get<BufferDistributionSpec>(output_mesh_buffer->device_local_config().shard_parameters.value());
+            *output_mesh_buffer->device_local_config().sharding_args.buffer_distribution_spec();
         const auto output_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
             *mesh_device_, output_buffer_distribution_spec, output_shard_view->core_type());
         std::vector<uint32_t> output_compile_time_args = {
@@ -234,9 +232,9 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
         EnqueueMeshWorkload(mesh_device_->mesh_command_queue(), mesh_work_load, false);
 
         // Wait for program to finish
-        tt::log_info("Program launched!");
+        log_info(tt::LogTest, "Program launched!");
         Finish(mesh_device_->mesh_command_queue());
-        tt::log_info("Program finished!");
+        log_info(tt::LogTest, "Program finished!");
     }
 
     // Initialize dst vector
@@ -244,7 +242,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
 
     // Validate output buffer matches src vector
     {
-        tt::log_info("Validating output buffer matches src vector");
+        log_info(tt::LogTest, "Validating output buffer matches src vector");
         std::vector<tt::tt_metal::distributed::MeshCommandQueue::ShardDataTransfer> shard_data_transfer{{
             .shard_coord = tt::tt_metal::distributed::MeshCoordinate{0, 0},
             .host_data = const_cast<void*>(reinterpret_cast<const void*>(dst.data())),
@@ -259,7 +257,7 @@ TEST_P(ShardedAccessorTestsOnDevice, SingleCoreReshard) {
 
     // Validate input buffer matches src vector (ie. unmodified after kernel read/writes)
     {
-        tt::log_info("Validating input buffer matches src vector (as a sanity check)");
+        log_info(tt::LogTest, "Validating input buffer matches src vector (as a sanity check)");
         std::vector<tt::tt_metal::distributed::MeshCommandQueue::ShardDataTransfer> shard_data_transfer{{
             .shard_coord = tt::tt_metal::distributed::MeshCoordinate{0, 0},
             .host_data = const_cast<void*>(reinterpret_cast<const void*>(dst.data())),

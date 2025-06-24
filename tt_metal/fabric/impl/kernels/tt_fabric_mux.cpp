@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -34,6 +34,8 @@ constexpr uint8_t NUM_EDM_BUFFERS = get_compile_time_arg_val(13);
 constexpr size_t NUM_FULL_SIZE_CHANNELS_ITERS = get_compile_time_arg_val(14);
 constexpr size_t NUM_ITERS_BETWEEN_TEARDOWN_CHECKS = get_compile_time_arg_val(15);
 
+constexpr ProgrammableCoreType CORE_TYPE = static_cast<ProgrammableCoreType>(get_compile_time_arg_val(16));
+
 constexpr size_t NOC_ALIGN_PADDING_BYTES = 12;
 
 namespace tt::tt_fabric {
@@ -53,11 +55,7 @@ void setup_channel(
     size_t& sender_flow_control_address,
     StreamId my_channel_free_slots_stream_id) {
     new (channel_ptr) tt::tt_fabric::FabricMuxChannelBuffer<NUM_BUFFERS>(
-        channel_base_address,
-        buffer_size_bytes,
-        sizeof(PACKET_HEADER_TYPE),
-        0, /* unused, eth_transaction_ack_word_addr */
-        channel_id);
+        channel_base_address, buffer_size_bytes, sizeof(PACKET_HEADER_TYPE), channel_id);
     channel_base_address += NUM_BUFFERS * buffer_size_bytes;
     init_ptr_val(my_channel_free_slots_stream_id, NUM_BUFFERS);
 
@@ -121,8 +119,7 @@ void kernel_main() {
     status_ptr[0] = tt::tt_fabric::FabricMuxStatus::STARTED;
 
     size_t rt_args_idx = 0;
-    auto fabric_connection =
-        tt::tt_fabric::FabricMuxToEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(rt_args_idx);
+    auto fabric_connection = tt::tt_fabric::FabricMuxToEdmSender::build_from_args<CORE_TYPE>(rt_args_idx);
 
     std::array<tt::tt_fabric::FabricMuxChannelBuffer<NUM_BUFFERS_FULL_SIZE_CHANNEL>, NUM_FULL_SIZE_CHANNELS>
         full_size_channels;
@@ -184,23 +181,10 @@ void kernel_main() {
 
     status_ptr[0] = tt::tt_fabric::FabricMuxStatus::READY_FOR_TRAFFIC;
 
+#if defined(COMPILE_FOR_IDLE_ERISC)
+    uint32_t heartbeat = 0;
+#endif
     while (!got_immediate_termination_signal(termination_signal_ptr)) {
-        bool got_graceful_termination = got_graceful_termination_signal(termination_signal_ptr);
-        if (got_graceful_termination) {
-            bool all_channels_drained = false;
-            for (uint8_t channel_id = 0; channel_id < NUM_FULL_SIZE_CHANNELS; channel_id++) {
-                all_channels_drained &= get_ptr_val(channel_id) == NUM_BUFFERS_FULL_SIZE_CHANNEL;
-            }
-            for (uint8_t channel_id = 0; channel_id < NUM_HEADER_ONLY_CHANNELS; channel_id++) {
-                all_channels_drained &=
-                    get_ptr_val(channel_id + NUM_FULL_SIZE_CHANNELS) == NUM_BUFFERS_HEADER_ONLY_CHANNEL;
-            }
-
-            if (all_channels_drained) {
-                return;
-            }
-        }
-
         for (size_t i = 0; i < NUM_ITERS_BETWEEN_TEARDOWN_CHECKS; i++) {
             for (size_t iter = 0; iter < NUM_FULL_SIZE_CHANNELS_ITERS; iter++) {
                 for (uint8_t channel_id = 0; channel_id < NUM_FULL_SIZE_CHANNELS; channel_id++) {
@@ -224,6 +208,9 @@ void kernel_main() {
                     channel_id + NUM_FULL_SIZE_CHANNELS);
             }
         }
+#if defined(COMPILE_FOR_IDLE_ERISC)
+        RISC_POST_HEARTBEAT(heartbeat);
+#endif
     }
 
     fabric_connection.close();

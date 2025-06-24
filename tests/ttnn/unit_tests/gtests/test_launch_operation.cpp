@@ -34,6 +34,7 @@ Tensor make_tensor_with_num_shards(const TensorSpec& tensor_spec, int num_device
 
     auto host_tensor = Tensor::from_vector(std::vector<float>(tensor_spec.logical_shape().volume()), tensor_spec);
     std::vector<Tensor> host_tensors;
+    host_tensors.reserve(num_device_shards);
     for (int i = 0; i < num_device_shards; ++i) {
         host_tensors.push_back(host_tensor);
     }
@@ -176,7 +177,7 @@ TEST_F(LaunchOperationT3000Test, UnevenTensor) {
         ttnn::Shape{1, 1, 32, 32}, tt::tt_metal::TensorLayout(DataType::FLOAT32, Layout::ROW_MAJOR, MemoryConfig{}));
     auto uneven_tensor = make_tensor_with_num_shards(tensor_spec, 2, mesh_device_.get());
 
-    EXPECT_THAT(uneven_tensor.device_storage().specs, SizeIs(2));
+    EXPECT_THAT(uneven_tensor.device_storage().coords, SizeIs(2));
 
     EXPECT_FALSE(all_tensors_have_uniform_storage(uneven_tensor));
     EXPECT_THAT(

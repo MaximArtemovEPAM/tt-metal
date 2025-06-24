@@ -30,14 +30,14 @@ FabricType get_fabric_type(tt::tt_metal::FabricConfig fabric_config, tt::Cluster
 std::vector<uint32_t> get_forwarding_link_indices_in_direction(
     chip_id_t src_chip_id, chip_id_t dst_chip_id, RoutingDirection direction);
 
-// returns which links on a given src chip are avaialable for forwarding the data to a dst chip
+// returns which links on a given src chip are available for forwarding the data to a dst chip
 // these link indices can then be used to establish connection with the fabric routers
 std::vector<uint32_t> get_forwarding_link_indices(chip_id_t src_chip_id, chip_id_t dst_chip_id);
 
 void get_optimal_noc_for_edm(
     FabricEriscDatamoverBuilder& edm_builder1,
     FabricEriscDatamoverBuilder& edm_builder2,
-    const uint32_t num_links,
-    const Topology topology);
+    uint32_t num_links,
+    Topology topology);
 
 }  // namespace tt::tt_fabric

@@ -11,7 +11,7 @@
 #include <tt-metalium/distributed.hpp>
 #include <tt-metalium/buffer_distribution_spec.hpp>
 
-#include "ttnn/cpp/ttnn/operations/sharding_utilities.hpp"
+#include "ttnn/operations/sharding_utilities.hpp"
 
 namespace accessor_benchmarks {
 
@@ -51,8 +51,7 @@ std::shared_ptr<tt::tt_metal::distributed::MeshBuffer> create_replicated_input_m
     const tt::tt_metal::distributed::DeviceLocalBufferConfig input_device_local_config{
         .page_size = page_size,
         .buffer_type = inputs.input_shard_spec.buffer_type,
-        .buffer_layout = tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
-        .shard_parameters = input_buffer_distribution_spec,
+        .sharding_args = input_buffer_distribution_spec,
     };
     const auto input_mesh_buffer =
         tt::tt_metal::distributed::MeshBuffer::create(mesh_buffer_config, input_device_local_config, mesh_device);
@@ -90,7 +89,7 @@ TEST_P(AccessorBenchmarks, Generic) {
     tt::tt_metal::detail::SetDeviceProfilerDir("accessor_benchmarks/" + params.test_name);
     tt::tt_metal::detail::FreshProfilerDeviceLog();
     {
-        tt::log_info("Creating single-core benchmarking program");
+        log_info(tt::LogTest, "Creating single-core benchmarking program");
         auto program = CreateProgram();
 
         constexpr CoreCoord grid = {0, 0};
@@ -99,7 +98,7 @@ TEST_P(AccessorBenchmarks, Generic) {
 
         // Set up sharded accessor compile-time args for reader kernel
         const auto& input_buffer_distribution_spec =
-            std::get<BufferDistributionSpec>(input_mesh_buffer->device_local_config().shard_parameters.value());
+            *input_mesh_buffer->device_local_config().sharding_args.buffer_distribution_spec();
         const auto input_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
             *mesh_device_, input_buffer_distribution_spec, input_shard_view->core_type());
         std::vector<uint32_t> input_compile_time_args = {
@@ -135,9 +134,9 @@ TEST_P(AccessorBenchmarks, Generic) {
         EnqueueMeshWorkload(mesh_device_->mesh_command_queue(), mesh_work_load, false);
 
         // Wait for program to finish
-        tt::log_info("Program launched!");
+        log_info(tt::LogTest, "Program launched!");
         Finish(mesh_device_->mesh_command_queue());
-        tt::log_info("Program finished!");
+        log_info(tt::LogTest, "Program finished!");
     }
     tt::tt_metal::detail::DumpDeviceProfileResults(local_device);
 }

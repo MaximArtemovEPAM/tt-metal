@@ -20,9 +20,10 @@ if(ENABLE_TTNN_SHARED_SUBLIBS)
 endif()
 
 add_library(ttnn_core ${LIB_TYPE})
-add_library(TT::NN::Core ALIAS ttnn_core)
+add_library(TTNN::Core ALIAS ttnn_core)
 
 target_compile_definitions(ttnn_core PUBLIC "$<$<CXX_COMPILER_ID:GNU>:DISABLE_NAMESPACE_STATIC_ASSERT>")
+target_precompile_headers(ttnn_core REUSE_FROM TT::CommonPCH)
 
 set(TENSOR_FLATBUFFER_SCHEMAS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/tensor/flatbuffer/mesh_coordinate.fbs
@@ -57,6 +58,7 @@ target_sources(
         core/graph/graph_processor.cpp
         core/graph/graph_trace_utils.cpp
         core/old_infra_device_operation.cpp
+        core/reports.cpp
         core/run_operation.cpp
         core/tensor/flatbuffer/tensor_flatbuffer.cpp
         core/tensor/flatbuffer/tensor_spec_flatbuffer.cpp
@@ -83,7 +85,6 @@ target_include_directories(
         api/ttnn
         core
         cpp # FIXME: Depend on the Ops needed (make the circular obvious)
-        . # FIXME: Depend on the Ops needed (make the circular obvious)
 )
 target_include_directories(ttnn_core SYSTEM PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/flatbuffers)
 target_link_libraries(
@@ -256,7 +257,6 @@ set(TTNN_SRC_PYBIND
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/normalization/rmsnorm/rmsnorm_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/normalization/rmsnorm_distributed/rmsnorm_distributed_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/normalization/softmax/softmax_${PY_BINDING}.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/pool/downsample/downsample_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/pool/generic/generic_pools_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/pool/global_avg_pool/global_avg_pool_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/pool/upsample/upsample_${PY_BINDING}.cpp
@@ -280,19 +280,26 @@ set(TTNN_SRC_PYBIND
 
 set(CCL_EXPERIMENTAL_TTNN_SRCS_PYBIND
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_gather_async/all_gather_async_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_broadcast_async/all_broadcast_async_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_gather_concat_heads_fused/all_gather_concat_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_gather_matmul/all_gather_matmul_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/llama_reduce_scatter_matmul/rs_matmul_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_reduce/all_reduce_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_reduce_async/all_reduce_async_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/ccl_experimental_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/reduce_scatter_async/reduce_scatter_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/rms_allgather/rms_allgather_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/scatter/scatter_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/scatter/tosa_scatter_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/reduction/sort/sort_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/gather/gather_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/gather/tosa/gather_tosa_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/llama_reduce_scatter/llama_reduce_scatter_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/llama_reduce_scatter_create_heads/llama_reduce_scatter_create_heads_${PY_BINDING}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_to_all_async/all_to_all_async_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/reduce_scatter_minimal_async_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/all_gather_matmul_async/all_gather_matmul_async_${PY_BINDING}.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn/operations/experimental/ccl/matmul_reduce_scatter_async/matmul_reduce_scatter_async_${PY_BINDING}.cpp
 )
 
 set(CCL_TTNN_SRCS_PYBIND
@@ -308,28 +315,29 @@ list(
     APPEND
     TTNN_SRC_PYBIND
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/__init__.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/types.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/activation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/cluster.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/core.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/events.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/fabric.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/global_circular_buffer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/global_semaphore.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/cluster.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/device.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/fabric.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/profiler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/program_descriptors.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/tensor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/pytensor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/reports.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/tensor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/types.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/operations/copy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/operations/core.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/operations/creation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/ttnn-${PY_BINDING}/operations/trace.cpp
 )
 
 ##################################################
 # Build the libraries!
 ##################################################
-
-set(TTNN_CPP_BUILD_TYPE SHARED)
-if(WITH_PYTHON_BINDINGS)
-    #ttnncpp will be static when building python bindings
-    set(TTNN_CPP_BUILD_TYPE STATIC)
-endif()
 
 #there are two ways to build TTNN
 # 1) Without Python bindings
@@ -341,30 +349,28 @@ endif()
 # Most of the use cases will link to ttnn without caring a lot about the backend, but
 # for those who need this second use case, now it is officially supported
 
-add_library(ttnncpp ${TTNN_CPP_BUILD_TYPE})
-add_library(TT::NN::CPP ALIAS ttnncpp)
+add_library(ttnncpp SHARED)
+add_library(TTNN::CPP ALIAS ttnncpp)
 add_library(Metalium::TTNNCPP ALIAS ttnncpp) # backwards compatibility. FIXME: remove
 
 target_compile_definitions(ttnncpp PUBLIC "$<$<CXX_COMPILER_ID:GNU>:DISABLE_NAMESPACE_STATIC_ASSERT>")
 target_precompile_headers(ttnncpp REUSE_FROM TT::CommonPCH)
 TT_ENABLE_UNITY_BUILD(ttnncpp)
 
-if(TTNN_CPP_BUILD_TYPE STREQUAL "SHARED")
-    set_target_properties(
-        ttnncpp
-        PROPERTIES
-            PREFIX
-                "_"
-            BUILD_RPATH
-                "${PROJECT_BINARY_DIR}/tt_metal;${PROJECT_BINARY_DIR}/ttnn"
-            INSTALL_RPATH
-                "${PROJECT_BINARY_DIR}/lib;$ORIGIN/build/lib;$ORIGIN" # FIXME: Install RPATH should not have a build path!
-            CXX_VISIBILITY_PRESET
-                "default" # FIXME: Export the symbols we want, and use hidden visibility instead of default
-            ADDITIONAL_CLEAN_FILES
-                "${PROJECT_SOURCE_DIR}/ttnn/ttnn/_'${LIBRARY_NAME}'.so;${PROJECT_SOURCE_DIR}/ttnn/'${LIBRARY_NAME}'.egg-info" # FIXME: Confirm this is a relic of the past and can be deleted; No generated files should land in the source tree!
-    )
-endif()
+set_target_properties(
+    ttnncpp
+    PROPERTIES
+        PREFIX
+            "_"
+        BUILD_RPATH
+            "${PROJECT_BINARY_DIR}/tt_metal;${PROJECT_BINARY_DIR}/ttnn"
+        INSTALL_RPATH
+            "${PROJECT_BINARY_DIR}/lib;$ORIGIN/build/lib;$ORIGIN" # FIXME: Install RPATH should not have a build path!
+        CXX_VISIBILITY_PRESET
+            "default" # FIXME: Export the symbols we want, and use hidden visibility instead of default
+        ADDITIONAL_CLEAN_FILES
+            "${PROJECT_SOURCE_DIR}/ttnn/ttnn/_'${LIBRARY_NAME}'.so;${PROJECT_SOURCE_DIR}/ttnn/'${LIBRARY_NAME}'.egg-info" # FIXME: Confirm this is a relic of the past and can be deleted; No generated files should land in the source tree!
+)
 
 target_sources(
     ttnncpp
@@ -405,8 +411,7 @@ target_include_directories(
     ttnncpp
     PUBLIC
         api
-        # FIXME: decide what to do about these dirs. Device includes complicate matters.
-        .
+        # FIXME: decide what to do about this dir. Device includes complicate matters.
         cpp
 )
 
@@ -414,61 +419,71 @@ target_link_libraries(
     ttnncpp
     PRIVATE
         TT::Metalium
-        TT::NN::Core
-        TT::NN::Ops::Bernoulli
-        TT::NN::Ops::CCL
-        TT::NN::Ops::Conv
-        TT::NN::Ops::Core
-        TT::NN::Ops::DataMovement
-        TT::NN::Ops::Eltwise::Binary
-        TT::NN::Ops::Eltwise::Binary::Backward
-        TT::NN::Ops::Eltwise::Binary::NG
-        TT::NN::Ops::Eltwise::Complex
-        TT::NN::Ops::Eltwise::Complex::Binary
-        TT::NN::Ops::Eltwise::Complex::Unary
-        TT::NN::Ops::Eltwise::Complex::Unary::Backward
-        TT::NN::Ops::Eltwise::Quantization
-        TT::NN::Ops::Eltwise::Ternary
-        TT::NN::Ops::Eltwise::Ternary::Backward
-        TT::NN::Ops::Eltwise::Unary
-        TT::NN::Ops::Eltwise::Unary::Backward
-        TT::NN::Ops::Embedding
-        TT::NN::Ops::Embedding::Backward
-        TT::NN::Ops::Examples
-        TT::NN::Ops::Experimental::AutoFormat
-        TT::NN::Ops::Experimental::BcastTo
-        TT::NN::Ops::Experimental::CCL
-        TT::NN::Ops::Experimental::CNN
-        TT::NN::Ops::Experimental::Conv3d
-        TT::NN::Ops::Experimental::Copy
-        TT::NN::Ops::Experimental::Dropout
-        TT::NN::Ops::Experimental::Matmul
-        TT::NN::Ops::Experimental::PagedCache
-        TT::NN::Ops::Experimental::PlusOne
-        TT::NN::Ops::Experimental::Reduction
-        TT::NN::Ops::Experimental::Reshape
-        TT::NN::Ops::Experimental::SSM
-        TT::NN::Ops::Experimental::Transformer
-        TT::NN::Ops::Experimental::UnaryBackward
-        TT::NN::Ops::Full
-        TT::NN::Ops::FullLike
-        TT::NN::Ops::IndexFill
-        TT::NN::Ops::KvCache
-        TT::NN::Ops::Loss
-        TT::NN::Ops::Matmul
-        TT::NN::Ops::Moreh
-        TT::NN::Ops::Prefetcher
-        TT::NN::Ops::Reduction
-        TT::NN::Ops::SlidingWindow
-        TT::NN::Ops::Transformer
-        TT::NN::Ops::Uniform
-        TT::NN::Ops::Pool
-        TT::NN::Ops::Normalization
+        TTNN::Core
+        TTNN::Ops::Bernoulli
+        TTNN::Ops::CCL
+        TTNN::Ops::Conv
+        TTNN::Ops::Core
+        TTNN::Ops::DataMovement
+        TTNN::Ops::Eltwise::Binary
+        TTNN::Ops::Eltwise::Binary::Backward
+        TTNN::Ops::Eltwise::Binary::NG
+        TTNN::Ops::Eltwise::Complex
+        TTNN::Ops::Eltwise::Complex::Binary
+        TTNN::Ops::Eltwise::Complex::Unary
+        TTNN::Ops::Eltwise::Complex::Unary::Backward
+        TTNN::Ops::Eltwise::Quantization
+        TTNN::Ops::Eltwise::Ternary
+        TTNN::Ops::Eltwise::Ternary::Backward
+        TTNN::Ops::Eltwise::Unary
+        TTNN::Ops::Eltwise::Unary::Backward
+        TTNN::Ops::Embedding
+        TTNN::Ops::Embedding::Backward
+        TTNN::Ops::Examples
+        TTNN::Ops::Experimental::AutoFormat
+        TTNN::Ops::Experimental::BcastTo
+        TTNN::Ops::Experimental::CCL
+        TTNN::Ops::Experimental::CNN
+        TTNN::Ops::Experimental::Conv3d
+        TTNN::Ops::Experimental::Copy
+        TTNN::Ops::Experimental::Dropout
+        TTNN::Ops::Experimental::Matmul
+        TTNN::Ops::Experimental::PagedCache
+        TTNN::Ops::Experimental::PlusOne
+        TTNN::Ops::Experimental::Reduction
+        TTNN::Ops::Experimental::Reshape
+        TTNN::Ops::Experimental::Scatter
+        TTNN::Ops::Experimental::SSM
+        TTNN::Ops::Experimental::Transformer
+        TTNN::Ops::Experimental::UnaryBackward
+        TTNN::Ops::Full
+        TTNN::Ops::FullLike
+        TTNN::Ops::IndexFill
+        TTNN::Ops::KvCache
+        TTNN::Ops::Loss
+        TTNN::Ops::Matmul
+        TTNN::Ops::Moreh
+        TTNN::Ops::Prefetcher
+        TTNN::Ops::Reduction
+        TTNN::Ops::SlidingWindow
+        TTNN::Ops::Transformer
+        TTNN::Ops::Uniform
+        TTNN::Ops::Pool
+        TTNN::Ops::Normalization
+)
+install(TARGETS ttnncpp LIBRARY COMPONENT ttnn-runtime)
+
+install(
+    TARGETS
+        ttnncpp
+    LIBRARY
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT tar
 )
 
 if(WITH_PYTHON_BINDINGS)
     add_library(ttnn SHARED)
-    add_library(TT::NN::PYTHON ALIAS ttnn)
+    add_library(TTNN::PYTHON ALIAS ttnn)
     add_library(Metalium::TTNN ALIAS ttnn) # backwards compatibility. FIXME: remove
     target_compile_definitions(ttnn PUBLIC "$<$<CXX_COMPILER_ID:GNU>:DISABLE_NAMESPACE_STATIC_ASSERT>")
     TT_ENABLE_UNITY_BUILD(ttnn)
@@ -495,12 +510,10 @@ if(WITH_PYTHON_BINDINGS)
             ${TTNN_SRC_PYBIND}
             ${CCL_TTNN_SRCS_PYBIND}
             ${CCL_EXPERIMENTAL_TTNN_SRCS_PYBIND}
-            ${Python3_LIBRARY_DIRS}
     )
     target_include_directories(
         ttnn
         PUBLIC
-            ${Python3_INCLUDE_DIRS}
             ${PROJECT_SOURCE_DIR}/ttnn
             ${CMAKE_CURRENT_SOURCE_DIR}/cpp
     )
@@ -508,16 +521,14 @@ if(WITH_PYTHON_BINDINGS)
     target_link_libraries(
         ttnn
         PUBLIC
-            TT::NN::CPP
+            TTNN::CPP
         PRIVATE
-            ${Python3_LIBRARIES}
             pybind11::module
             Boost::algorithm
             TT::Metalium
     )
-endif()
+    install(TARGETS ttnn LIBRARY COMPONENT ttnn-runtime)
 
-if(WITH_PYTHON_BINDINGS)
     # Install .so into src files for pybinds implementation
     install(
         TARGETS
@@ -537,17 +548,10 @@ if(WITH_PYTHON_BINDINGS)
             COMPONENT
             tt_pybinds
     )
-else()
-    #when we don't build python bindings, we generate a dynamic library ttnncpp
-    install(
-        TARGETS
-            ttnncpp
-        ARCHIVE
-            DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        LIBRARY
-            DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            COMPONENT tar
-    )
+endif()
+
+if(TTNN_BUILD_TESTS)
+    add_subdirectory(test)
 endif()
 
 set(FixmeOpIncDirs
@@ -586,6 +590,7 @@ add_subdirectory(cpp/ttnn/operations/experimental/paged_cache)
 add_subdirectory(cpp/ttnn/operations/experimental/plusone)
 add_subdirectory(cpp/ttnn/operations/experimental/reduction)
 add_subdirectory(cpp/ttnn/operations/experimental/reshape)
+add_subdirectory(cpp/ttnn/operations/experimental/scatter)
 add_subdirectory(cpp/ttnn/operations/experimental/ssm)
 add_subdirectory(cpp/ttnn/operations/experimental/transformer)
 add_subdirectory(cpp/ttnn/operations/experimental/unary_backward)
@@ -603,3 +608,5 @@ add_subdirectory(cpp/ttnn/operations/transformer)
 add_subdirectory(cpp/ttnn/operations/uniform)
 add_subdirectory(cpp/ttnn/operations/pool)
 add_subdirectory(cpp/ttnn/operations/normalization)
+
+add_subdirectory(cpp/ttnn/deprecated)

@@ -2,15 +2,25 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tensor.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <set>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/operators.h>
 
-#include <utility>
-
-#include "tensor.hpp"
 #include "ttnn-pybind/json_class.hpp"
-#include "export_enum.hpp"
+#include "ttnn-pybind/export_enum.hpp"
 
 #include <tt-metalium/host_buffer.hpp>
 #include "ttnn/tensor/serialization.hpp"
@@ -20,8 +30,6 @@
 #include "ttnn/distributed/types.hpp"
 
 using namespace tt::tt_metal;
-
-namespace py = pybind11;
 
 namespace ttnn::tensor {
 
@@ -151,7 +159,7 @@ void tensor_mem_config_module(py::module& m_tensor) {
 
                 .. code-block:: python
 
-                    mem_config = ttnn.MemoryConfig(ttnn.TensorMemoryLayout.SINGLE_BANK)
+                    mem_config = ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED)
             )doc")
         .def(
             py::init<>([](BufferType buffer_type, NdShardSpec nd_shard_spec) {
@@ -280,7 +288,6 @@ void tensor_mem_config_module(py::module& m_tensor) {
         &dump_tensor,
         py::arg("filename"),
         py::arg("tensor"),
-        py::arg("strategy") = std::unordered_map<std::string, std::string>{},
         R"doc(
             Dump tensor to file
         )doc");

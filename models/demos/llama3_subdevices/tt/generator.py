@@ -56,15 +56,16 @@ class Generator:
         self.model = model
         self.model_args = model_args
         self.mesh_device = mesh_device
-        self.tokenizer = tokenizer
         self.formatter = formatter
         if isinstance(self.model_args, List):
             self.model_args = self.model_args[0]
         if isinstance(self.model, List):
             self.model = self.model[0]
+        self.tokenizer = self.model_args.tokenizer
         self.trace_id_prefill = defaultdict(lambda: None)
         self.trace_inputs_prefill = defaultdict(lambda: None)
         self.trace_output_prefill = defaultdict(lambda: None)
+        self.prev_page_table = None
 
     def prefill_forward_text(
         self,
@@ -74,32 +75,42 @@ class Generator:
         prompt_lens=None,
         enable_trace=True,
         sampling_params=SamplingParams(temperature=0.0, top_k=-1, top_p=1.0),
+        empty_slots=None,
     ):
         assert sampling_params.temperature == 0, "Currently only supporting greedy decoding (temperature=0) on device"
 
         if self.model.is_prefill_setup is False:
             self.model.switch_mode("prefill")
+
         kv_cache = kv_cache[0]
         batch, batch_seq_len = tokens.shape
         output_logits = torch.zeros(batch, 1, 1)
         prompt_lens = prompt_lens if prompt_lens is not None else torch.tensor([batch_seq_len] * batch)
-
         if page_table is not None:
             assert isinstance(
                 page_table, torch.Tensor
             ), "page_table must be a torch.Tensor when passing into prefill_forward"
 
-        for user_id in range(batch):
+        if empty_slots is None:
+            empty_slots = list(range(batch))
+
+        for id, user_id in enumerate(empty_slots):
             logger.info(f"Prefilling User {user_id + 1}")
-            seq_len = int(prompt_lens[user_id])
+            seq_len = int(prompt_lens[id])
             last_token_idx = seq_len - 1
 
             prefill_seq_len = get_padded_prefill_len(seq_len)
+            if prefill_seq_len not in self.model.tt_ccl.support_seqlens:
+                enable_trace = False
+            else:
+                enable_trace = True
             prefill_ids = torch.cat(
-                [tokens[user_id : user_id + 1, :seq_len], torch.zeros(1, prefill_seq_len - seq_len).long()], dim=-1
+                [tokens[id : id + 1, :seq_len], torch.zeros(1, prefill_seq_len - seq_len).long()], dim=-1
             )
             if page_table is not None:
-                page_table_user = self._get_prefill_user_page_table(page_table, kv_cache, prefill_seq_len)
+                page_table_user = self._get_prefill_user_page_table(page_table, kv_cache, prefill_seq_len, user_id)
+                # remove the first user from the page table
+                page_table = page_table[1:, :]
             prefill_kwargs = {
                 "tokens": prefill_ids,
                 "page_table": page_table_user if page_table is not None else None,
@@ -112,7 +123,7 @@ class Generator:
             else:
                 tt_logits = self.prefill_forward_single_user_text(**prefill_kwargs)
 
-            output_logits[user_id] = tt_logits
+            output_logits[id] = tt_logits
 
         logger.info(f"Finished prefill for all users up to {batch_seq_len} tokens, Starting decode...")
 
@@ -305,33 +316,36 @@ class Generator:
         enable_trace=True,
         read_from_device=True,
         sampling_params: SamplingParams = None,  # Should be None if not greedy decoding / sampling on device.
-        reset_inputs=True,
+        reset_inputs=False,
     ):
         assert (
             sampling_params is None or sampling_params.temperature == 0
         ), "Currently only supporting greedy decoding (temperature=0) on device"
-        argmax_on_device = torch.all(start_pos[1:] == -1).item() and (
-            sampling_params is not None and sampling_params.temperature == 0
-        )
+
+        if self.prev_page_table is None:
+            self.prev_page_table = page_table
+        if torch.any(self.prev_page_table != page_table).item():
+            reset_inputs = True
+            self.prev_page_table = page_table
+
         if self.model.is_decode_setup is False:
             self.model.switch_mode("decode")
+            reset_inputs = True
         kv_cache = kv_cache[0]
         decode_kwargs = {
             "current_pos": start_pos,
             "tokens": tokens,
             "page_table": page_table,
             "kv_cache": kv_cache,
-            "argmax_on_device": argmax_on_device,
         }
         if enable_trace:
             tt_logits = self._easy_trace_text(**decode_kwargs, reset_inputs=reset_inputs)
         else:
             tt_logits = self._decode_forward_no_trace_text(**decode_kwargs)
-
         if read_from_device:
-            return self.read_decode_output(tt_logits, tokens.shape[0], is_tokens=(argmax_on_device))
-        else:
-            return tt_logits
+            tt_logits = self.read_decode_output(tt_logits, tokens.shape[0])
+
+        return tt_logits
 
     def _decode_forward_no_trace_text(
         self,
@@ -339,7 +353,6 @@ class Generator:
         current_pos,
         page_table=None,
         kv_cache=None,
-        argmax_on_device=False,
     ):
         """
         Performs text decode step.
@@ -354,7 +367,6 @@ class Generator:
             rot_mat_idxs=rot_mat_idxs,
             page_table=tt_page_table,
             kv_cache=kv_cache,
-            argmax_on_device=argmax_on_device,
         )
 
         return tt_logits
@@ -365,16 +377,13 @@ class Generator:
         current_pos,
         page_table=None,
         kv_cache=None,
-        argmax_on_device=False,
     ):
         """
         Captures a trace for the decode_forward method.
         """
 
         # Compile run
-        self._decode_forward_no_trace_text(
-            tokens, current_pos, page_table=page_table, kv_cache=kv_cache, argmax_on_device=argmax_on_device
-        )
+        self._decode_forward_no_trace_text(tokens, current_pos, page_table=page_table, kv_cache=kv_cache)
         logger.info("Done Compiling Model")
 
         # Get inputs ready for trace run
@@ -382,9 +391,7 @@ class Generator:
         device_inputs = copy_host_to_device(host_inputs, mesh_device=self.mesh_device)
 
         trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
-        tt_out_trace = self.model.ttnn_decode_forward(
-            *device_inputs, kv_cache=kv_cache, argmax_on_device=argmax_on_device
-        )
+        tt_out_trace = self.model.ttnn_decode_forward(*device_inputs, kv_cache=kv_cache)
 
         ttnn.end_trace_capture(self.mesh_device, trace_id, cq_id=0)
         logger.info("Done Capturing Decode Trace")
@@ -412,7 +419,6 @@ class Generator:
         current_pos,
         page_table=None,
         kv_cache=None,
-        argmax_on_device=False,
         reset_inputs=False,
     ):
         """
@@ -421,7 +427,7 @@ class Generator:
         tokens = tokens.view(-1, 1)
         if not hasattr(self, "trace_id_text"):
             trace_id, tt_out_trace, *device_inputs = self._capture_trace_text(
-                tokens, current_pos, page_table=page_table, kv_cache=kv_cache, argmax_on_device=argmax_on_device
+                tokens, current_pos, page_table=page_table, kv_cache=kv_cache
             )
             self.trace_id_text = trace_id
             self.trace_inputs_text = device_inputs
@@ -443,8 +449,8 @@ class Generator:
 
         return trace_logits_rm
 
-    def read_decode_output(self, tt_logits, unpadded_batch, is_tokens=False):
-        logits = self.model.process_output_decode(tt_logits, B=unpadded_batch, S=1, is_tokens=is_tokens)
+    def read_decode_output(self, tt_logits, unpadded_batch, is_tokens=True):
+        logits = self.model.process_output_decode(tt_logits, B=unpadded_batch, S=1)
         return logits
 
     def chat_completion(
@@ -505,7 +511,7 @@ class Generator:
 
         return CompletionPrediction(generation=generation)
 
-    def _get_prefill_user_page_table(self, page_table, kv_cache, prefill_len):
+    def _get_prefill_user_page_table(self, page_table, kv_cache, prefill_len, user_id):
         # Ensure page_table is not padded with extra blocks for paged_fill_cache to work properly
 
         block_size = get_block_size(kv_cache)
@@ -516,11 +522,8 @@ class Generator:
             padding = torch.ones(page_table.shape[0], num_blocks - page_table.shape[1], dtype=torch.int32) * -1
             page_table = torch.cat([page_table, padding], dim=1)
         # Pad page table to 32 users
-        b = page_table.shape[0]
-        padded_b = 32 - b
-        padded_page_table = torch.cat(
-            [page_table, torch.ones(padded_b, page_table.shape[1], dtype=torch.int32) * -1], dim=0
-        )
+        padded_page_table = torch.ones(32, page_table.shape[1], dtype=torch.int32) * -1
+        padded_page_table[user_id, :] = page_table[0, :]
         return padded_page_table
 
     ## Destructor (used to delete ttnn trace if exists)

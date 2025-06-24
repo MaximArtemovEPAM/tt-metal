@@ -8,9 +8,9 @@
 #include <pybind11/stl.h>
 
 #include "ttnn-pybind/decorators.hpp"
-#include "cpp/ttnn/operations/data_movement/sharded/interleaved_to_sharded/interleaved_to_sharded_pybind.hpp"
-#include "cpp/ttnn/operations/data_movement/sharded/reshard/reshard_pybind.hpp"
-#include "cpp/ttnn/operations/data_movement/sharded/sharded_to_interleaved/sharded_to_interleaved_pybind.hpp"
+#include "ttnn/operations/data_movement/sharded/interleaved_to_sharded/interleaved_to_sharded_pybind.hpp"
+#include "ttnn/operations/data_movement/sharded/reshard/reshard_pybind.hpp"
+#include "ttnn/operations/data_movement/sharded/sharded_to_interleaved/sharded_to_interleaved_pybind.hpp"
 #include "ttnn/operations/data_movement/bcast/bcast_pybind.hpp"
 #include "ttnn/operations/data_movement/chunk/chunk_pybind.hpp"
 #include "ttnn/operations/data_movement/clone/clone_pybind.hpp"
@@ -43,8 +43,6 @@
 #include "ttnn/operations/data_movement/unsqueeze/unsqueeze_pybind.hpp"
 #include "ttnn/operations/data_movement/untilize/untilize_pybind.hpp"
 #include "ttnn/operations/data_movement/untilize_with_unpadding/untilize_with_unpadding_pybind.hpp"
-
-namespace py = pybind11;
 
 namespace ttnn::operations::data_movement {
 
