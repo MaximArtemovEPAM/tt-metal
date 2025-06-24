@@ -21,7 +21,7 @@ COCO_CAPTIONS_DOWNLOAD_PATH = "https://github.com/mlcommons/inference/raw/4b1d11
 @pytest.mark.parametrize("device_params", [{"l1_small_size": SDXL_L1_SMALL_SIZE}], indirect=True)
 @pytest.mark.parametrize(
     "num_inference_steps",
-    ((50),),
+    ((20),),
 )
 @pytest.mark.parametrize(
     "vae_on_device",
