@@ -67,38 +67,72 @@ jobs:
             export MAGIC_ENV=wormhole_b0_80_arch_eth_dispatch.yaml
           fi
 
+          # Track failed tests
+          failed_tests=()
+          exit_code=0
+
+          # Function to run test and track failures
+          run_test() {
+            local test_name="$1"
+            local test_command="$2"
+            echo "Running test: $test_name"
+            if ! eval "$test_command"; then
+              echo "❌ FAILED: $test_name"
+              failed_tests+=("$test_name")
+              exit_code=1
+            else
+              echo "✅ PASSED: $test_name"
+            fi
+          }
+
           if [[ "${{ matrix.test-info.civ2-compatible }}" != "true" ]]; then
             echo "Running tests that are not yet ported to CIv2"
-            pytest models/demos/convnet_mnist/tests/ -m models_device_performance_bare_metal
-            pytest models/demos/mnist/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/falcon7b_common/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/segformer/tests/perf -m models_device_performance_bare_metal
+            run_test "convnet_mnist" "pytest models/demos/convnet_mnist/tests/ -m models_device_performance_bare_metal"
+            run_test "mnist" "pytest models/demos/mnist/tests -m models_device_performance_bare_metal"
+            run_test "falcon7b_common" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/falcon7b_common/tests -m models_device_performance_bare_metal"
+            run_test "segformer" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/segformer/tests/perf -m models_device_performance_bare_metal"
           else
             echo "Running CIv2 compatible tests"
-            pytest models/demos/wormhole/stable_diffusion/tests -m models_device_performance_bare_metal --timeout=600
-            pytest models/demos/distilbert/tests -m models_device_performance_bare_metal
-            pytest models/demos/vgg/tests/ -m models_device_performance_bare_metal
-            pytest models/demos/bert_tiny/tests/ -m models_device_performance_bare_metal
-            pytest models/demos/squeezebert/tests -m models_device_performance_bare_metal
-            pytest models/demos/roberta/tests/ -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/wormhole/resnet50/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/experimental/functional_unet/tests/test_unet_perf.py -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/wormhole/mamba/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/metal_BERT_large_11/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/wormhole/bert_tiny/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/yolov4/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/wormhole/distilbert/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/mobilenetv2/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/yolov8x/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/experimental/yolov8s/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/experimental/functional_vanilla_unet/test -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/yolov8s_world/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/vgg_unet/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/experimental/yolov10/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/ufld_v2/tests -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/demos/wormhole/vit/demo/test_vit_device_perf.py -m models_device_performance_bare_metal
-            WH_ARCH_YAML=$MAGIC_ENV pytest models/experimental/stable_diffusion_xl_base/tests/test_sdxl_perf.py -m models_device_performance_bare_metal
+            run_test "stable_diffusion" "pytest models/demos/wormhole/stable_diffusion/tests -m models_device_performance_bare_metal --timeout=600"
+            run_test "distilbert" "pytest models/demos/distilbert/tests -m models_device_performance_bare_metal"
+            run_test "vgg" "pytest models/demos/vgg/tests/ -m models_device_performance_bare_metal"
+            run_test "bert_tiny" "pytest models/demos/bert_tiny/tests/ -m models_device_performance_bare_metal"
+            run_test "squeezebert" "pytest models/demos/squeezebert/tests -m models_device_performance_bare_metal"
+            run_test "roberta" "pytest models/demos/roberta/tests/ -m models_device_performance_bare_metal"
+            run_test "resnet50" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/wormhole/resnet50/tests -m models_device_performance_bare_metal"
+            run_test "functional_unet" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/experimental/functional_unet/tests/test_unet_perf.py -m models_device_performance_bare_metal"
+            run_test "mamba" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/wormhole/mamba/tests -m models_device_performance_bare_metal"
+            run_test "BERT_large_11" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/metal_BERT_large_11/tests -m models_device_performance_bare_metal"
+            run_test "wormhole_bert_tiny" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/wormhole/bert_tiny/tests -m models_device_performance_bare_metal"
+            run_test "yolov4" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/yolov4/tests -m models_device_performance_bare_metal"
+            run_test "wormhole_distilbert" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/wormhole/distilbert/tests -m models_device_performance_bare_metal"
+            run_test "mobilenetv2" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/mobilenetv2/tests -m models_device_performance_bare_metal"
+            run_test "yolov8x" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/yolov8x/tests -m models_device_performance_bare_metal"
+            run_test "experimental_yolov8s" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/experimental/yolov8s/tests -m models_device_performance_bare_metal"
+            run_test "functional_vanilla_unet" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/experimental/functional_vanilla_unet/test -m models_device_performance_bare_metal"
+            run_test "yolov8s_world" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/yolov8s_world/tests -m models_device_performance_bare_metal"
+            run_test "vgg_unet" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/vgg_unet/tests -m models_device_performance_bare_metal"
+            run_test "yolov10" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/experimental/yolov10/tests -m models_device_performance_bare_metal"
+            run_test "ufld_v2" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/ufld_v2/tests -m models_device_performance_bare_metal"
+            run_test "vit" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/demos/wormhole/vit/demo/test_vit_device_perf.py -m models_device_performance_bare_metal"
+            run_test "stable_diffusion_xl" "WH_ARCH_YAML=\$MAGIC_ENV pytest models/experimental/stable_diffusion_xl_base/tests/test_sdxl_perf.py -m models_device_performance_bare_metal"
           fi
+
+          # Report results
+          echo "========== TEST RESULTS SUMMARY =========="
+          if [ ${#failed_tests[@]} -eq 0 ]; then
+            echo "✅ All tests passed!"
+          else
+            echo "❌ ${#failed_tests[@]} test(s) failed:"
+            for test in "${failed_tests[@]}"; do
+              echo "  - $test"
+            done
+            echo "Overall pipeline result: FAILED"
+          fi
+          echo "=========================================="
+
+          # Exit with error code if any tests failed
+          exit $exit_code
 
           export DEVICE_PERF_REPORT_FILENAME=Models_Device_Perf_${{ matrix.test-info.test-type }}_$(date +%Y_%m_%d).csv
           python3 models/perf/merge_device_perf_results.py $DEVICE_PERF_REPORT_FILENAME
