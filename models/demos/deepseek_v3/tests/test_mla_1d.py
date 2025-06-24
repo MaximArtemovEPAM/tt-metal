@@ -153,7 +153,11 @@ def test_forward_pass(
     ############################
     ### Set up configs
     ############################
+    num_devices = mesh_device.get_num_devices()
+    TG_GRID = (8, 4)  # TP, DP
+
     weights_path = temp_dir
+    logger.info(f"Converting weights for MLA_1D to {weights_path}")
     weight_config = MLA_1D.convert_weights(hf_config, reference_model.state_dict(), weights_path, mesh_device)
 
     if mode == "prefill":
@@ -185,13 +189,16 @@ def test_forward_pass(
         mask=None,
     )
 
-    breakpoint()
-
     ############################
     ### TTNN inputs
     ############################
+    torch_input = torch_input.permute(1, 0, 2).unsqueeze(0)
+
+    # if num_devices == 1:
+    #     torch_input = torch_input[..., :torch_input.shape[-1] // TG_GRID[0]]
+
     tt_input = ttnn.from_torch(
-        torch_input.permute(1, 0, 2).unsqueeze(0),
+        torch_input,
         device=mesh_device,
         mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, dims=(-1, None), mesh_shape=list(mesh_device.shape)),
         dtype=ttnn.bfloat16,
@@ -202,10 +209,15 @@ def test_forward_pass(
     ############################
     ### TTNN forward pass
     ############################
-    tt_mla = MLA_1D(mesh_device, hf_config)
+    tt_mla = MLA_1D(hf_config, mesh_device)
 
     tt_output = tt_mla.forward(tt_input, run_config, mesh_device)
     tt_output_torch = ttnn.to_torch(tt_output)
+
+    if mode == "prefill":
+        pass
+    else:
+        tt_output_torch = tt_output_torch.squeeze(1).permute(1, 0, 2)
 
     ############################
     ### Validation

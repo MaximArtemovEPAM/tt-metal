@@ -5,7 +5,8 @@
 import torch
 
 import ttnn
-from models.demos.deepseek_v3.tt.abstract_module import AbstractModule
+from models.demos.deepseek_v3.utils.abstract_module import AbstractModule
+from models.demos.deepseek_v3.utils.config_dataclass import LinearConfig
 from models.demos.deepseek_v3.utils.config_helpers import TILE_SIZE
 
 
@@ -82,8 +83,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        if num_devices == 1:
-            torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
+        # if num_devices == 1:
+        #     torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
 
         add_weight_config(
             torch_weight,
@@ -105,8 +106,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        if num_devices == 1:
-            torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
+        # if num_devices == 1:
+        #     torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
 
         add_weight_config(
             torch_weight,
@@ -128,8 +129,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        if num_devices == 1:
-            torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
+        # if num_devices == 1:
+        #     torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
 
         add_weight_config(
             torch_weight,
@@ -159,9 +160,9 @@ class MLA_1D(AbstractModule):
             -2, -1
         )  # [num_heads, kv_lora_rank, v_head_dim]
 
-        if num_devices == 1:
-            torch_weight_k = torch_weight_k[: torch_weight_k.shape[0] // TG_GRID[0], ...]
-            torch_weight_v = torch_weight_v[: torch_weight_v.shape[0] // TG_GRID[0], ...]
+        # if num_devices == 1:
+        #     torch_weight_k = torch_weight_k[: torch_weight_k.shape[0] // TG_GRID[0], ...]
+        #     torch_weight_v = torch_weight_v[: torch_weight_v.shape[0] // TG_GRID[0], ...]
 
         add_weight_config(
             torch_weight_k,
@@ -197,8 +198,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{our_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        if num_devices == 1:
-            torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
+        # if num_devices == 1:
+        #     torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
 
         add_weight_config(
             torch_weight,
@@ -255,39 +256,39 @@ class MLA_1D(AbstractModule):
 
         config = {"mode": "decode"}
 
-        config["wq_a"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wq_a"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
-        config["wq_b"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wq_b"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
-        config["wkv_a"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wkv_a"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
-        config["wkv_b1"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wkv_b1"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
-        config["wkv_b2"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wkv_b2"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
-        config["wo"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "program_config": None,
-        }
+        config["wo"] = LinearConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=None,
+        )
 
         return config
 
-    def __init__(self, mesh_device, hf_config):
+    def __init__(self, hf_config, mesh_device):
         """Initialize the MLP with the given mesh device and HuggingFace config
 
         We use this to define lambdas for dynamic prefill program configs that
@@ -299,11 +300,11 @@ class MLA_1D(AbstractModule):
         we should find a way to make it beautiful and fast instead.
 
         Args:
-            mesh_device: TTNN mesh device
             hf_config: HuggingFace model configuration object
+            mesh_device: TTNN mesh device
 
         """
-        super().__init__(mesh_device, hf_config)
+        super().__init__(hf_config, mesh_device)
 
         dim = hf_config.hidden_size
         hidden_dim = hf_config.intermediate_size
@@ -326,7 +327,7 @@ class MLA_1D(AbstractModule):
     def _forward_decode(self, x, cfg, mesh_device):
         """Straightforward forward pass for decode mode"""
         # Gate and up projections
-        q = ttnn.linear(x, **cfg["w1"])
+        q = ttnn.linear(x, **cfg["wq_a"])
 
         return q
 

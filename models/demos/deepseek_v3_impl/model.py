@@ -246,7 +246,11 @@ class MLA(nn.Module):
                 persistent=False,
             )
 
+    def bring_up_forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+        return self.wq_a(x)
+
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+        return self.bring_up_forward(x, start_pos, freqs_cis, mask)
         bsz, seqlen, _ = x.size()
         end_pos = start_pos + seqlen
         if self.q_lora_rank == 0:
