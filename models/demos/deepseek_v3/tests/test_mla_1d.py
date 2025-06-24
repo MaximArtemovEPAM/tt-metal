@@ -42,7 +42,11 @@ def reference(hf_config):
     config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
     with open(config_path) as f:
         model_args = ModelArgs(**json.load(f))
-    return model_args, MLA(model_args)
+
+    model = MLA(model_args)
+    model.init_weights_with_random()
+
+    return model_args, model
 
 
 def get_mesh_device():

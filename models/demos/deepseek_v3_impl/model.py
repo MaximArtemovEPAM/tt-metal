@@ -246,6 +246,13 @@ class MLA(nn.Module):
                 persistent=False,
             )
 
+    def init_weights_with_random(self):
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                print(f"Initializing {name} with torch.randn")
+                with torch.no_grad():
+                    param.copy_(torch.randn_like(param))
+
     def bring_up_forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         return self.wq_a(x)
 
