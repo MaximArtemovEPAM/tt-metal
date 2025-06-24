@@ -37,6 +37,7 @@ void kernel_main() {
     constexpr uint32_t max_dynamic_chunk_size = get_compile_time_arg_val(19);
     constexpr bool tilize_q = get_compile_time_arg_val(20) == 1;
     constexpr bool use_half_tile = get_compile_time_arg_val(21);
+    constexpr uint32_t q_chunk_size_bytes = get_compile_time_arg_val(22);
 
     uint32_t arg_idx = 0;
     const uint32_t q_addr = get_arg_val<uint32_t>(arg_idx++);
@@ -133,6 +134,8 @@ void kernel_main() {
     // First, read Q entirely, it could be interleaved or sharded
     uint32_t q_batch_offset = cur_batch * q_chunk_tiles;
     uint32_t q_chunk_tiles_bytes = q_chunk_tiles * q_tile_bytes;
+    DPRINT << "q_chunk_tiles_bytes: " << q_chunk_tiles_bytes << ENDL();
+    DPRINT << "q_chunk_size_bytes: " << q_chunk_size_bytes << ENDL();
 
     if constexpr (is_q_sharded) {
         uint64_t q_read_addr;
@@ -158,10 +161,7 @@ void kernel_main() {
                 q_write_ptr += q_tile_bytes;
             }
         } else {
-            noc_async_read(
-                q_read_addr,
-                q_write_ptr,
-                q_chunk_tiles_bytes);  // Sus, q_chunk_tiles_bytes is incorrect for row major; can be less for free
+            noc_async_read(q_read_addr, q_write_ptr, q_chunk_size_bytes);
         }
         noc_async_read_barrier();
         if constexpr (tilize_q) {
