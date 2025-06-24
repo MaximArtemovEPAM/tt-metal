@@ -121,16 +121,17 @@ void kernel_main() {
                         stride_w,
                         window_outer_offset,
                         weight_size_w,
-                        weights_size_h>(
+                        weights_size_h,
+                        7>(
                         packed_reader_indices_ptr,
                         reader_offset,
                         l1_write_addr_act,
                         reader_idx,
                         loop == 0,
                         cb_start_addr,
-                        loop == 0);
+                        loop == 0,
+                        cb_id_act_second_reader);
                     noc_async_read_barrier();
-                    cb_push_back(cb_id_act_second_reader, act_cb_tiles);
                 }
             }
 

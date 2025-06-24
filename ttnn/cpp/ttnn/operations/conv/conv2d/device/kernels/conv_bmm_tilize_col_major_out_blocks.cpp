@@ -25,45 +25,88 @@ FORCE_INLINE void update_local_cb_rd_ptr(uint32_t cb_id, uint32_t val) {
     local_cb.fifo_rd_ptr = val;
 }
 
+FORCE_INLINE void update_local_cb_wr_ptr(uint32_t cb_id, uint32_t val) {
+    LocalCBInterface& local_cb = get_local_cb_interface(cb_id);
+    local_cb.fifo_wr_ptr = val;
+}
+
+FORCE_INLINE void update_local_cb_tile_wr_ptr(uint32_t cb_id, uint32_t val) {
+    LocalCBInterface& local_cb = get_local_cb_interface(cb_id);
+    local_cb.fifo_wr_tile_ptr = val;
+}
+
 FORCE_INLINE uint32_t get_local_cb_rd_ptr(uint32_t cb_id) {
     LocalCBInterface& local_cb = get_local_cb_interface(cb_id);
     return local_cb.fifo_rd_ptr;
 }
 
-inline uint32_t tilize_in(
-    uint32_t in_cb_id,
+FORCE_INLINE uint32_t get_local_cb_wr_ptr(uint32_t cb_id) {
+    LocalCBInterface& local_cb = get_local_cb_interface(cb_id);
+    return local_cb.fifo_wr_ptr;
+}
+
+inline void tilize_in(
+    uint32_t in1_cb_id,
+    uint32_t in2_cb_id,
     uint32_t in_subblock_h,
     uint32_t in_block_w,
-    uint32_t in_num_subblocks,
+    uint32_t in1_num_subblocks,
+    uint32_t in2_num_subblocks,
     uint32_t out_cb_id,
-    uint32_t rows_read,
     uint32_t diff,
-    uint32_t start_cb_addr,
-    uint32_t end_cb_addr,
+    uint32_t start_cb_addr_1,
+    uint32_t start_cb_addr_2,
+    uint32_t out_diff,
+    uint32_t element_diff,
     uint32_t image_width_in_tiles) {
-    tilize_init_short(in_cb_id, in_block_w, out_cb_id);
-    uint32_t counter = 0;
-    for (uint32_t in_subblock = 0; in_subblock < in_num_subblocks; ++in_subblock) {
+    cb_reserve_back(out_cb_id, in_block_w * in1_num_subblocks * in_subblock_h * 2);
+
+    uint32_t pointer1 = 0;
+    uint32_t counter;
+
+    PACK((pointer1 = get_local_cb_interface(out_cb_id).fifo_wr_ptr));
+    uint32_t pointer2 = pointer1 + out_diff;
+
+    for (uint32_t in_subblock = 0; in_subblock < in1_num_subblocks; ++in_subblock) {
         for (uint32_t h = 0; h < in_subblock_h; ++h) {
             // TODO(sjovic): move out these divisions somehow
             if (counter >= image_width_in_tiles && counter % image_width_in_tiles == 0) {
                 uint32_t multiplier = counter / image_width_in_tiles;
                 uint32_t new_read_ptr = 0;
-                UNPACK((new_read_ptr = start_cb_addr + multiplier * diff));
-                UNPACK((update_local_cb_rd_ptr(in_cb_id, new_read_ptr)));
+                UNPACK((new_read_ptr = start_cb_addr_1 + multiplier * diff));
+                UNPACK((update_local_cb_rd_ptr(in1_cb_id, new_read_ptr)));
+
+                UNPACK((new_read_ptr = start_cb_addr_2 + multiplier * diff));
+                UNPACK((update_local_cb_rd_ptr(in2_cb_id, new_read_ptr)));
             }
             counter++;
 
-            cb_wait_front(in_cb_id, in_block_w);
-            cb_reserve_back(out_cb_id, in_block_w);
-            tilize_block(in_cb_id, in_block_w, out_cb_id);
-            cb_push_back(out_cb_id, in_block_w);
-            cb_pop_front(in_cb_id, in_block_w);
+            // out cb pointer magic NCRISC
+            PACK((update_local_cb_wr_ptr(out_cb_id, pointer1)));
+            PACK((update_local_cb_tile_wr_ptr(out_cb_id, 0)));
+            PACK((pointer1 += element_diff));
+
+            tilize_init_short(in1_cb_id, in_block_w, out_cb_id);
+            cb_wait_front(in1_cb_id, in_block_w);
+            tilize_block(in1_cb_id, in_block_w, out_cb_id);
+            cb_pop_front(in1_cb_id, in_block_w);
+            tilize_uninit(in1_cb_id, out_cb_id);
+
+            // out cb pointer magic BRISC
+            PACK((update_local_cb_wr_ptr(out_cb_id, pointer2)));
+            PACK((update_local_cb_tile_wr_ptr(out_cb_id, 0)));
+            PACK((pointer2 += element_diff));
+
+            tilize_init_short(in2_cb_id, in_block_w, out_cb_id);
+            cb_wait_front(in2_cb_id, in_block_w);
+            tilize_block(in2_cb_id, in_block_w, out_cb_id);
+            cb_pop_front(in2_cb_id, in_block_w);
+            tilize_uninit(in2_cb_id, out_cb_id);
         }
     }
-    tilize_uninit(in_cb_id, out_cb_id);
 
-    return counter;
+    cb_push_back(out_cb_id, in_block_w * in1_num_subblocks * in_subblock_h * 2);
+
 }  // tilize_in()
 
 template <uint32_t out_subblock_w, uint32_t out_block_w>
@@ -164,13 +207,12 @@ void MAIN {
     SFPU_OP_INIT_ACTIVATION
 #endif
     uint32_t start_cb_addr_1 = get_local_cb_interface(in0_cb_id).fifo_rd_ptr;
-    uint32_t end_cb_addr_1 = start_cb_addr_1 + cb_size;
-    uint32_t rows_read_1 = 0;
+    // TODO: generalize for data formats
+    uint32_t out_diff = (1088 * in0_block_w * in0_num_subblocks_read * in0_subblock_h) / 16;
+    uint32_t element_diff = (1088 * in0_block_w) / 16;
 
 #ifdef SPLIT_READER
     uint32_t start_cb_addr_2 = get_local_cb_interface(in0_cb_second_reader_id).fifo_rd_ptr;
-    uint32_t end_cb_addr_2 = start_cb_addr_2 + cb_size;
-    uint32_t rows_read_2 = 0;
 #endif
     UNPACK(uint32_t partials_cb_read_ptr = get_local_cb_interface(matmul_partials_cb).fifo_rd_ptr;)
     PACK(uint32_t partials_cb_write_ptr = get_local_cb_interface(matmul_partials_cb).fifo_wr_ptr;)
@@ -224,31 +266,22 @@ void MAIN {
 
                     reconfig_data_format_srca(in1_cb_id, in0_cb_id);
                     UNPACK((update_local_cb_rd_ptr(in0_cb_id, start_cb_addr_1)));
-                    rows_read_1 = tilize_in(
-                        in0_cb_id,
-                        in0_subblock_h,
-                        in0_block_w,
-                        in0_num_subblocks_read,
-                        tilized_in0_cb_id,
-                        rows_read_1,
-                        diff,
-                        start_cb_addr_1,
-                        end_cb_addr_1,
-                        image_width_in_tiles);
-#ifdef SPLIT_READER
                     UNPACK((update_local_cb_rd_ptr(in0_cb_second_reader_id, start_cb_addr_2)));
-                    rows_read_2 = tilize_in(
+                    // TODO(sjovic): generalize for single reader
+                    tilize_in(
+                        in0_cb_id,
                         in0_cb_second_reader_id,
                         in0_subblock_h,
                         in0_block_w,
+                        in0_num_subblocks_read,
                         in0_num_subblocks_read_last,
                         tilized_in0_cb_id,
-                        rows_read_2,
                         diff,
+                        start_cb_addr_1,
                         start_cb_addr_2,
-                        end_cb_addr_2,
+                        out_diff,
+                        element_diff,
                         image_width_in_tiles);
-#endif
 
                     mm_block_init_short_with_dt(
                         mm_in0_cb_id,
