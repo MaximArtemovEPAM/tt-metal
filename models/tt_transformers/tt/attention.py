@@ -25,7 +25,7 @@ class Attention(LightweightModule):
         configuration,
         paged_attention_config=None,
         use_paged_kv_cache=False,
-        ccl_sub_device_crs=None,
+        multi_device_global_semaphores=None,
         worker_sub_device_id=None,
     ):
         super().__init__()
@@ -53,7 +53,7 @@ class Attention(LightweightModule):
             max(self.max_batch_size // self.num_device_groups, 1) if self.TG else self.max_batch_size
         )
 
-        self.ccl_sub_device_crs = ccl_sub_device_crs
+        self.multi_device_global_semaphores = multi_device_global_semaphores
         self.worker_sub_device_id = worker_sub_device_id
 
         self.n_local_heads = self.n_heads // self.num_devices_per_group
@@ -843,28 +843,22 @@ class Attention(LightweightModule):
                     mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
                 )
 
-                multi_device_global_semaphore = [
-                    ttnn.create_global_semaphore(self.mesh_device, self.ccl_sub_device_crs, 0) for _ in range(2)
-                ]
-
                 attn_output_11SH = ttnn.experimental.all_gather_async(
                     attn_output_11SH,
                     persistent_intermediate_buffer=persistent_intermediate_buffer,
                     persistent_output_buffer=persistent_output_buffer,
                     dim=3,
-                    multi_device_global_semaphore=multi_device_global_semaphore,
+                    multi_device_global_semaphore=self.multi_device_global_semaphores[:2],
                     num_links=1,
                     topology=self.ccl_topology,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     subdevice_id=self.worker_sub_device_id,
                 )
             else:
-                multi_device_global_semaphore = ttnn.create_global_semaphore(self.device, self.ccl_sub_device_crs, 0)
-
                 attn_output_11SH = ttnn.experimental.all_gather_async(
                     attn_output_11SH,
                     dim=3,
-                    multi_device_global_semaphore=multi_device_global_semaphore,
+                    multi_device_global_semaphore=self.multi_device_global_semaphores[0],
                     num_links=1,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     topology=self.ccl_topology,
@@ -872,6 +866,10 @@ class Attention(LightweightModule):
                 )
 
             ttnn.synchronize_device(self.mesh_device, sub_device_ids=[self.worker_sub_device_id])
+            [
+                ttnn.reset_global_semaphore_value(global_semaphore, 0)
+                for global_semaphore in self.multi_device_global_semaphores
+            ]
 
         output_11SH = ttnn.linear(
             attn_output_11SH,
@@ -898,7 +896,7 @@ class Attention(LightweightModule):
                 topology=self.ccl_topology,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 dtype=self.ccl_dtype,
-                ccl_sub_device_crs=self.ccl_sub_device_crs,
+                multi_device_global_semaphores=self.multi_device_global_semaphores,
                 worker_sub_device_id=self.worker_sub_device_id,
             )
 

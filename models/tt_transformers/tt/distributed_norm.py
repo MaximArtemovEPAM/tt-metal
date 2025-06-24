@@ -15,13 +15,13 @@ class DistributedNorm(LightweightModule):
         norm,
         args,
         TG=False,
-        ccl_sub_device_crs=None,
+        multi_device_global_semaphores=None,
         worker_sub_device_id=None,
     ):
         self.norm = norm
         self.args = args
 
-        self.ccl_sub_device_crs = ccl_sub_device_crs
+        self.multi_device_global_semaphores = multi_device_global_semaphores
         self.worker_sub_device_id = worker_sub_device_id
 
         if TG:
@@ -114,30 +114,22 @@ class DistributedNorm(LightweightModule):
                     mesh_mapper=ttnn.ReplicateTensorToMesh(self.args.mesh_device),
                 )
 
-                multi_device_global_semaphore = [
-                    ttnn.create_global_semaphore(self.args.mesh_device, self.ccl_sub_device_crs, 0) for _ in range(2)
-                ]
-
                 x = ttnn.experimental.all_gather_async(
                     x,
                     persistent_intermediate_buffer=persistent_intermediate_buffer,
                     persistent_output_buffer=persistent_output_buffer,
                     dim=3,
-                    multi_device_global_semaphore=multi_device_global_semaphore,
+                    multi_device_global_semaphore=self.multi_device_global_semaphores[:2],
                     num_links=1,
                     memory_config=input_mem_cfg,
                     topology=self.args.ccl_topology(),
                     subdevice_id=self.worker_sub_device_id,
                 )
             else:
-                multi_device_global_semaphore = ttnn.create_global_semaphore(
-                    self.args.mesh_device, self.ccl_sub_device_crs, 0
-                )
-
                 x = ttnn.experimental.all_gather_async(
                     x,
                     dim=3,
-                    multi_device_global_semaphore=multi_device_global_semaphore,
+                    multi_device_global_semaphore=self.multi_device_global_semaphores[0],
                     num_links=1,
                     memory_config=input_mem_cfg,
                     topology=self.args.ccl_topology(),
@@ -145,5 +137,9 @@ class DistributedNorm(LightweightModule):
                 )
 
             ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[self.worker_sub_device_id])
+            [
+                ttnn.reset_global_semaphore_value(global_semaphore, 0)
+                for global_semaphore in self.multi_device_global_semaphores
+            ]
 
         return x

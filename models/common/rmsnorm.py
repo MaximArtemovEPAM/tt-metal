@@ -52,7 +52,7 @@ class RMSNorm(LightweightModule):
         sharded_output_config=None,
         output_mem_config=None,
         ccl_topology=ttnn.Topology.Ring,
-        ccl_sub_device_crs=None,
+        multi_device_global_semaphores=None,
         worker_sub_device_id=None,
     ):
         super().__init__()
@@ -60,7 +60,7 @@ class RMSNorm(LightweightModule):
         self.is_distributed = is_distributed
         self.ccl_topology = ccl_topology
 
-        self.ccl_sub_device_crs = ccl_sub_device_crs
+        self.multi_device_global_semaphores = multi_device_global_semaphores
         self.worker_sub_device_id = worker_sub_device_id
 
         self.device = device
@@ -177,28 +177,22 @@ class RMSNorm(LightweightModule):
                 mesh_mapper=ttnn.ReplicateTensorToMesh(self.device),
             )
 
-            multi_device_global_semaphore = [
-                ttnn.create_global_semaphore(self.device, self.ccl_sub_device_crs, 0) for _ in range(2)
-            ]
-
             tt_stats = ttnn.experimental.all_gather_async(
                 tt_stats,
                 persistent_intermediate_buffer=persistent_intermediate_buffer,
                 persistent_output_buffer=persistent_output_buffer,
                 dim=3,
-                multi_device_global_semaphore=multi_device_global_semaphore,
+                multi_device_global_semaphore=self.multi_device_global_semaphores[:2],
                 num_links=1,
                 topology=self.ccl_topology,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 subdevice_id=self.worker_sub_device_id,
             )
         else:
-            multi_device_global_semaphore = ttnn.create_global_semaphore(self.device, self.ccl_sub_device_crs, 0)
-
             tt_stats = ttnn.experimental.all_gather_async(
                 tt_stats,
                 dim=3,
-                multi_device_global_semaphore=multi_device_global_semaphore,
+                multi_device_global_semaphore=self.multi_device_global_semaphores[0],
                 num_links=1,
                 topology=self.ccl_topology,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -206,6 +200,10 @@ class RMSNorm(LightweightModule):
             )
 
         ttnn.synchronize_device(self.device, sub_device_ids=[self.worker_sub_device_id])
+        [
+            ttnn.reset_global_semaphore_value(global_semaphore, 0)
+            for global_semaphore in self.multi_device_global_semaphores
+        ]
 
         # Run distributed rmsnorm part 2
         tt_out = ttnn.rms_norm_post_all_gather(

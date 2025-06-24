@@ -48,6 +48,12 @@ class Transformer(LightweightModule):
             }
         )
 
+        # The used CCLs use up to 3 global semaphores
+        # Each op should reset all semaphores themselves, but they are reset in the model as well for safety
+        self.multi_device_global_semaphores = [
+            ttnn.create_global_semaphore(self.mesh_device, self.ccl_sub_device_crs, 0) for _ in range(3)
+        ]
+
         self.worker_sub_device_id = ttnn.SubDeviceId(0)
 
         self.worker_sub_device = ttnn.SubDevice([self.ccl_sub_device_crs])
@@ -86,7 +92,7 @@ class Transformer(LightweightModule):
                 transformation_mats=self.trans_mats_dict,
                 paged_attention_config=paged_attention_config,
                 use_paged_kv_cache=use_paged_kv_cache,
-                ccl_sub_device_crs=self.ccl_sub_device_crs,
+                multi_device_global_semaphores=self.multi_device_global_semaphores,
                 worker_sub_device_id=self.worker_sub_device_id,
             )
             for i in tqdm(range(self.n_layers))
@@ -105,12 +111,12 @@ class Transformer(LightweightModule):
                 sharded_program_config=self.model_config["SHARDED_NORM_LM_HEAD_PRGM_CFG"],
                 sharded_output_config=self.model_config["LM_HEAD_INPUT_MEMCFG"],
                 ccl_topology=self.args.ccl_topology(),
-                ccl_sub_device_crs=self.ccl_sub_device_crs,
+                multi_device_global_semaphores=self.multi_device_global_semaphores,
                 worker_sub_device_id=self.worker_sub_device_id,
             ),
             args,
             args.is_galaxy,
-            ccl_sub_device_crs=self.ccl_sub_device_crs,
+            multi_device_global_semaphores=self.multi_device_global_semaphores,
             worker_sub_device_id=self.worker_sub_device_id,
         )
 

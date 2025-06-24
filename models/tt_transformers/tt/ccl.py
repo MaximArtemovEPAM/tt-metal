@@ -20,7 +20,7 @@ def tt_all_reduce(
     sharded=False,
     dtype=ttnn.bfloat16,
     use_composite=False,
-    ccl_sub_device_crs=None,
+    multi_device_global_semaphores=None,
     worker_sub_device_id=None,
 ):
     # N150
@@ -40,11 +40,6 @@ def tt_all_reduce(
             input_tensor_sharded = input_tensor
             input_tensor = ttnn.sharded_to_interleaved(input_tensor_sharded, ttnn.L1_MEMORY_CONFIG)
             input_tensor_sharded.deallocate(True)
-
-        compute_grid_size = mesh_device.compute_with_storage_grid_size()
-        ccl_sub_device_crs = ttnn.CoreRangeSet(
-            {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1))}
-        )
 
         rs_input_dtype = input_tensor.dtype
         rs_input_shape = list(input_tensor.shape)
@@ -72,16 +67,12 @@ def tt_all_reduce(
             mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
         )
 
-        multi_device_global_semaphore = [
-            ttnn.create_global_semaphore(mesh_device, ccl_sub_device_crs, 0) for _ in range(3)
-        ]
-
         reduced = ttnn.experimental.reduce_scatter_minimal_async(
             input_tensor,
             persistent_intermediate_buffer=persistent_intermediate_buffer,
             persistent_output_buffer=persistent_output_buffer,
             dim=dim,
-            multi_device_global_semaphore=multi_device_global_semaphore,
+            multi_device_global_semaphore=multi_device_global_semaphores,
             num_links=num_reduce_scatter_links,
             memory_config=memory_config,
             topology=topology,
@@ -89,6 +80,8 @@ def tt_all_reduce(
         )
 
         ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+        [ttnn.reset_global_semaphore_value(global_semaphore, 0) for global_semaphore in multi_device_global_semaphores]
+
         input_tensor.deallocate(True)
         return reduced
 

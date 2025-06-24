@@ -22,7 +22,7 @@ class MLP(LightweightModule):
         dtype,
         model_config,
         state_dict_prefix=None,
-        ccl_sub_device_crs=None,
+        multi_device_global_semaphores=None,
         worker_sub_device_id=None,
     ):
         super().__init__()
@@ -39,7 +39,7 @@ class MLP(LightweightModule):
         # If pading was applied (e.g. via env var), add the unpadded hidden dim to the cache name to avoid loading incorrect weights
         hidden_dim_string = f".hidden_dim_{args.hidden_dim}" if args.hidden_dim != args.unpadded_hidden_dim else ""
 
-        self.ccl_sub_device_crs = ccl_sub_device_crs
+        self.multi_device_global_semaphores = multi_device_global_semaphores
         self.worker_sub_device_id = worker_sub_device_id
 
         if args.dummy_weights:
@@ -247,7 +247,7 @@ class MLP(LightweightModule):
             dtype=self.args.ccl_dtype,
             use_composite=True if self.dim == 8192 else False,
             topology=self.args.ccl_topology(),
-            ccl_sub_device_crs=self.ccl_sub_device_crs,
+            multi_device_global_semaphores=self.multi_device_global_semaphores,
             worker_sub_device_id=self.worker_sub_device_id,
         )
 
