@@ -576,7 +576,7 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
         out_w,
         split_reader,                // enable split reader
         out_nhw_per_core / nblocks,  // loop count with blocks
-        input_shape[3] / num_shards_c,
+        in_c / num_shards_c,
         in_nblocks_c,
         max_rows_for_reduction,
         in_cb_id_0,
