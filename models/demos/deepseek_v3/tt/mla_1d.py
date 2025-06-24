@@ -1,22 +1,12 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-import math
 
 import torch
 
 import ttnn
 from models.demos.deepseek_v3.tt.abstract_module import AbstractModule
-from models.demos.deepseek_v3.utils.config_helpers import (
-    COMPUTE_KERNEL_CONFIG_HIFI2_FP16,
-    COMPUTE_KERNEL_CONFIG_LOFI,
-    TILE_SIZE,
-    dram_shard_core_grid_for_k_and_n,
-    dram_sharded_matmul_config,
-    find_prefill_grid,
-    matmul_config,
-)
-from models.utility_functions import is_blackhole, is_wormhole_b0
+from models.demos.deepseek_v3.utils.config_helpers import TILE_SIZE
 
 
 class MLA_1D(AbstractModule):
@@ -39,8 +29,14 @@ class MLA_1D(AbstractModule):
         """
 
         weight_config = {}
+
         dim = hf_config.hidden_size
         hidden_dim = hf_config.intermediate_size
+        num_heads = hf_config.num_attention_heads
+        kv_lora_rank = hf_config.kv_lora_rank
+        qk_nope_head_dim = hf_config.qk_nope_head_dim
+        v_head_dim = hf_config.v_head_dim
+
         num_devices = mesh_device.get_num_devices()
 
         TG_GRID = (8, 4)  # TP, DP
@@ -56,13 +52,14 @@ class MLA_1D(AbstractModule):
         ):
             """Helper function to convert and save weights, updating weight_config."""
             ttnn_weight = ttnn.as_tensor(
-                torch_weight.unsqueeze(0).unsqueeze(0),
+                torch_weight,
                 dtype=dtype,
                 device=mesh_device,
                 mesh_mapper=mesh_mapper,
                 layout=layout,
                 memory_config=mem_config,
             )
+            ttnn_weight = ttnn.unsqueeze_to_4D(ttnn_weight)
 
             weight_file_path = output_path / f"{our_name}.{kwarg_name}.weight"
             ttnn.dump_tensor(weight_file_path, ttnn_weight)
@@ -73,10 +70,8 @@ class MLA_1D(AbstractModule):
 
         hf_ttnn_name_mapping = {
             "q_a_proj": "wq_a",
-            "q_a_layernorm": "wq_a_ln",
             "q_b_proj": "wq_b",
             "kv_a_proj_with_mqa": "wkv_a",
-            "kv_a_layernorm": "wkv_a_ln",
             "kv_b_proj": "wkv_b",
             "o_proj": "wo",
         }
@@ -87,8 +82,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{hf_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        # FIXME: Single device only for now
-        torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
+        if num_devices == 1:
+            torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
 
         add_weight_config(
             torch_weight,
@@ -110,8 +105,8 @@ class MLA_1D(AbstractModule):
         torch_weight = state_dict[f"{hf_name}.weight"]
         torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        # FIXME: Single device only for now
-        torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
+        if num_devices == 1:
+            torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
 
         add_weight_config(
             torch_weight,
@@ -127,21 +122,97 @@ class MLA_1D(AbstractModule):
             ),
         )
 
-        # # TODO: This should be handled by RMSNorm module??
-        # # wq_a_ln
-        # hf_name = "q_a_layernorm"
-        # our_name = hf_ttnn_name_mapping[hf_name]
-        # torch_weight = state_dict[f"{hf_name}.weight"]
+        # wkv_a
+        hf_name = "kv_a_proj_with_mqa"
+        our_name = hf_ttnn_name_mapping[hf_name]
+        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = torch.transpose(torch_weight, -2, -1)
 
-        # add_weight_config(
-        #     torch_weight,
-        #     our_name,
-        #     "input_tensor_b", # TODO: Check
-        #     dtype=ttnn.bfloat16,
-        #     mem_config=ttnn.DRAM_MEMORY_CONFIG,
-        #     layout=ttnn.TILE_LAYOUT,
-        #     mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
-        # )
+        if num_devices == 1:
+            torch_weight = torch_weight[: torch_weight.shape[0] // TG_GRID[0], :]
+
+        add_weight_config(
+            torch_weight,
+            our_name,
+            "input_tensor_b",
+            dtype=ttnn.bfloat8_b,
+            mem_config=ttnn.DRAM_MEMORY_CONFIG,
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=ttnn.ShardTensor2dMesh(
+                mesh_device,
+                dims=[-2, None],
+                mesh_shape=list(mesh_device.shape),
+            ),
+        )
+
+        # wkv_b1
+        hf_name = "kv_b_proj"
+        our_name = hf_ttnn_name_mapping[hf_name]
+        torch_weight = state_dict[f"{hf_name}.weight"]
+
+        # This weight needs to be split
+        torch_weight = torch_weight.view(kv_lora_rank, num_heads * (qk_nope_head_dim + v_head_dim))
+        torch_weight = torch_weight.reshape(num_heads, -1, kv_lora_rank)
+
+        torch_weight_k = torch_weight[:, :qk_nope_head_dim, :]  # [num_heads, qk_nope_head_dim, kv_lora_rank]
+        torch_weight_v = torch_weight[:, qk_nope_head_dim:, :].transpose(
+            -2, -1
+        )  # [num_heads, kv_lora_rank, v_head_dim]
+
+        if num_devices == 1:
+            torch_weight_k = torch_weight_k[: torch_weight_k.shape[0] // TG_GRID[0], ...]
+            torch_weight_v = torch_weight_v[: torch_weight_v.shape[0] // TG_GRID[0], ...]
+
+        add_weight_config(
+            torch_weight_k,
+            our_name + "1",
+            "input_tensor_b",
+            dtype=ttnn.bfloat8_b,
+            mem_config=ttnn.DRAM_MEMORY_CONFIG,
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=ttnn.ShardTensor2dMesh(
+                mesh_device,
+                dims=[-3, None],
+                mesh_shape=list(mesh_device.shape),
+            ),
+        )
+
+        add_weight_config(
+            torch_weight_v,
+            our_name + "2",
+            "input_tensor_b",
+            dtype=ttnn.bfloat8_b,
+            mem_config=ttnn.DRAM_MEMORY_CONFIG,
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=ttnn.ShardTensor2dMesh(
+                mesh_device,
+                dims=[-3, None],
+                mesh_shape=list(mesh_device.shape),
+            ),
+        )
+
+        # wo
+        hf_name = "o_proj"
+        our_name = hf_ttnn_name_mapping[hf_name]
+        torch_weight = state_dict[f"{hf_name}.weight"]
+        torch_weight = torch.transpose(torch_weight, -2, -1)
+
+        if num_devices == 1:
+            torch_weight = torch_weight[:, : torch_weight.shape[1] // TG_GRID[0]]
+
+        add_weight_config(
+            torch_weight,
+            our_name,
+            "input_tensor_b",
+            dtype=ttnn.bfloat8_b,
+            mem_config=ttnn.DRAM_MEMORY_CONFIG,
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=ttnn.ShardTensor2dMesh(
+                mesh_device,
+                dims=[-1, None],
+                mesh_shape=list(mesh_device.shape),
+            ),
+        )
 
         return weight_config
 
@@ -162,44 +233,7 @@ class MLA_1D(AbstractModule):
 
         config = {"mode": "prefill"}
 
-        # Maximum rows to process at once in prefill mode
-        config["max_rows"] = 512 if is_blackhole() else 1024
-
-        # Program configs are dynamically generated in __init__ based on sequence length
-        # See __init__ function for implementation details
-        # Note: avoid the temptation to combine these - create_run_config will look for these names
-        # and will fill them with the weights, so each op needs its own config entry.
-        config["w1"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_HIFI2_FP16,
-        }
-
-        config["w3"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_HIFI2_FP16,
-        }
-
-        config["w2"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_HIFI2_FP16,
-        }
-
-        # Activation configurations
-        config["mul"] = {
-            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
-            "input_tensor_a_activations": [ttnn.UnaryOpType.SILU],
-        }
-
-        # All-reduce configuration for multi-device synchronization
-        config["all_reduce"] = {
-            "cluster_axis": 0,
-            "dim": 3,
-            "num_reduce_scatter_links": 1,
-            "num_all_gather_links": 1,
-            "topology": ttnn.Topology.Ring if num_devices == 8 else ttnn.Topology.Linear,
-            "dtype": ttnn.bfloat8_b,
-            "use_composite": dim >= 8192,  # Use composite for larger models
-        }
+        # TODO: Need to implement
 
         return config
 
@@ -221,56 +255,34 @@ class MLA_1D(AbstractModule):
 
         config = {"mode": "decode"}
 
-        # Decode mode configurations
-        config["w1"] = {
-            "memory_config": ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            "program_config": dram_sharded_matmul_config(dim, hidden_dim, mesh_device),
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_LOFI,  # FP16 accumulation saves L1
+        config["wq_a"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
         }
 
-        config["w3"] = {
-            "memory_config": ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            "program_config": dram_sharded_matmul_config(dim, hidden_dim, mesh_device),  # Same as w1
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_LOFI,
+        config["wq_b"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
         }
 
-        tile_padded_batch_rows = TILE_SIZE * int(math.ceil(MLA_1D.MAX_BATCH_SIZE / TILE_SIZE))
-        mlp2_core_grid = dram_shard_core_grid_for_k_and_n(hidden_dim // num_devices, dim)
-        config["w2_reshard"] = {
-            "memory_config": ttnn.create_sharded_memory_config(
-                (
-                    tile_padded_batch_rows,
-                    hidden_dim // num_devices // mlp2_core_grid.num_cores,
-                ),
-                mlp2_core_grid,
-                ttnn.ShardStrategy.WIDTH,
-                ttnn.ShardOrientation.ROW_MAJOR,
-                use_height_and_width_as_shard_shape=True,
-            )
-        }
-        config["w2"] = {
-            "memory_config": ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            "program_config": dram_sharded_matmul_config(hidden_dim // num_devices, dim, mesh_device),
-            "compute_kernel_config": COMPUTE_KERNEL_CONFIG_LOFI,
+        config["wkv_a"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
         }
 
-        # Activation configurations
-        config["mul"] = {
-            "memory_config": ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            "input_tensor_a_activations": [ttnn.UnaryOpType.SILU],
+        config["wkv_b1"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
         }
 
-        # All-reduce configuration for multi-device synchronization
-        config["all_reduce"] = {
-            "cluster_axis": 0,
-            "dim": 3,
-            "num_reduce_scatter_links": 1,
-            "num_all_gather_links": 1,
-            "topology": ttnn.Topology.Ring if num_devices == 8 else ttnn.Topology.Linear,
-            "dtype": ttnn.bfloat8_b,
-            # FIXME: From tt_transformers/tt/mlp.py, surely >= and not ==?
-            # FIXME: Why this value and not e.g. 7*1024?
-            "use_composite": dim == 8192,  # Use composite for larger models
+        config["wkv_b2"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
+        }
+
+        config["wo"] = {
+            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
+            "program_config": None,
         }
 
         return config
@@ -291,36 +303,15 @@ class MLA_1D(AbstractModule):
             hf_config: HuggingFace model configuration object
 
         """
-        super().__init__()
+        super().__init__(mesh_device, hf_config)
 
-        prefill_rows = 8  # TODO if BH = 10, if wh = 8
         dim = hf_config.hidden_size
         hidden_dim = hf_config.intermediate_size
         num_devices = mesh_device.get_num_devices()
 
-        mlp1_3_grid = find_prefill_grid(prefill_rows, dim // TILE_SIZE)
-        mlp2_grid = find_prefill_grid(prefill_rows, hidden_dim // TILE_SIZE)
+        # TODO: Set up RoPE module
 
-        # Using dram_shard_grid_width to ensure per_core_N matches DRAM shard width for P100, otherwise matmuls silently give bad PCC
-        dram_shard_grid_width = 8 if is_wormhole_b0() else mesh_device.dram_grid_size().x  # 7 for P100, 8 for P150
-
-        n_w1_w3 = hidden_dim // num_devices  # weights are 1d sharded across devices
-        self.w1_w3_pc = lambda seq_len: matmul_config(
-            m=seq_len,
-            k=dim // num_devices,
-            n=n_w1_w3,
-            grid_size=mlp1_3_grid,
-            per_core_N=math.ceil(n_w1_w3 / (TILE_SIZE * dram_shard_grid_width)),
-        )
-
-        n_w2 = dim
-        self.w2_pc = lambda seq_len: matmul_config(
-            m=seq_len,
-            k=hidden_dim // num_devices,
-            n=n_w2,
-            grid_size=mlp2_grid,
-            per_core_N=math.ceil(n_w2 / (TILE_SIZE * dram_shard_grid_width)),
-        )
+        # TODO: Set up KVPE Cache
 
     def forward(self, x, cfg, mesh_device):
         """Decode is very straightforward but prefill reshapes and has dynamic program configs
@@ -335,24 +326,9 @@ class MLA_1D(AbstractModule):
     def _forward_decode(self, x, cfg, mesh_device):
         """Straightforward forward pass for decode mode"""
         # Gate and up projections
-        w1_out = ttnn.linear(x, **cfg["w1"])
-        w3_out = ttnn.linear(x, **cfg["w3"])
-        ttnn.deallocate(x)
+        q = ttnn.linear(x, **cfg["w1"])
 
-        # Apply activation and multiply
-        activated = ttnn.mul(w1_out, w3_out, **cfg["mul"])
-        ttnn.deallocate(w1_out)
-        ttnn.deallocate(w3_out)
-
-        # w2 may use a different core grid, this is a no-op if they already match
-        activated = ttnn.to_memory_config(activated, **cfg["w2_reshard"])
-
-        # Down projection
-        output = ttnn.linear(activated, **cfg["w2"])
-        ttnn.deallocate(activated)
-
-        # All-reduce across devices to sum partial results
-        return ttnn.all_reduce(output, mesh_device=mesh_device, **cfg["all_reduce"])
+        return q
 
     def _forward_prefill(self, x, cfg, mesh_device):
         """Forward pass of the MLP.
@@ -367,40 +343,5 @@ class MLA_1D(AbstractModule):
         Returns:
             Output tensor after MLP computation
         """
-        seq_len = x.shape[-2]
 
-        # Handle large sequence lengths
-        if seq_len > cfg["max_rows"]:
-            # Reshape input to process in chunks
-            original_shape = x.shape
-            num_chunks = seq_len // cfg["max_rows"]
-            x = ttnn.reshape(x, [1, num_chunks, cfg["max_rows"], -1])
-
-            # Get current sequence length for program config
-            current_seq_len = x.shape[-2]
-        else:
-            current_seq_len = seq_len
-            original_shape = None
-
-        # Gate and up projections with dynamic program configs
-        w1_out = ttnn.linear(x, program_config=self.w1_w3_pc(current_seq_len), **cfg["w1"])
-        w3_out = ttnn.linear(x, program_config=self.w1_w3_pc(current_seq_len), **cfg["w3"])
-        ttnn.deallocate(x)
-
-        # Apply activation and multiply
-        activated = ttnn.mul(w1_out, w3_out, **cfg["mul"])
-        ttnn.deallocate(w1_out)
-        ttnn.deallocate(w3_out)
-
-        # Down projection with dynamic program configs
-        output = ttnn.linear(activated, program_config=self.w2_pc(current_seq_len), **cfg["w2"])
-        ttnn.deallocate(activated)
-
-        # All-reduce across devices to sum partial results
-        output = ttnn.all_reduce(output, mesh_device=mesh_device, **cfg["all_reduce"])
-
-        # Reshape output to expected format if we reshaped the input
-        if original_shape is not None:
-            output = ttnn.reshape(output, original_shape)
-
-        return output
+        return x
