@@ -118,15 +118,17 @@ void kernel_main() {
     volatile tt_l1_ptr PACKET_HEADER_TYPE* bwd_packet_header;
 
     if constexpr (mcast_mode) {
+        DPRINT << "Multicast mode\n";
         uint32_t mcast_fwd_hops = get_arg_val<uint32_t>(rt_args_idx++);
-
-        fwd_fabric_connection =
-            tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(rt_args_idx);
+        uint32_t eth_channel = get_arg_val<uint32_t>(rt_args_idx++);
+        fwd_fabric_connection = tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(
+            rt_args_idx, eth_channel);
 
         uint32_t bwd_dev_id = get_arg_val<uint32_t>(rt_args_idx++);
         uint32_t mcast_bwd_hops = get_arg_val<uint32_t>(rt_args_idx++);
-        bwd_fabric_connection =
-            tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(rt_args_idx);
+        eth_channel = get_arg_val<uint32_t>(rt_args_idx++);
+        bwd_fabric_connection = tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(
+            rt_args_idx, eth_channel);
 
         fwd_packet_header = reinterpret_cast<volatile tt_l1_ptr PACKET_HEADER_TYPE*>(packet_header_buffer_address);
         bwd_packet_header = reinterpret_cast<volatile tt_l1_ptr PACKET_HEADER_TYPE*>(
@@ -145,10 +147,13 @@ void kernel_main() {
             bwd_fabric_connection, bwd_packet_header, mcast_bwd_hops, noc_dest_addr, packet_payload_size_bytes);
 
     } else {
+        DPRINT << "Unicast mode\n";
         uint32_t unicast_hops = get_arg_val<uint32_t>(rt_args_idx++);
 
-        fwd_fabric_connection =
-            tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(rt_args_idx);
+        uint32_t eth_channel = get_arg_val<uint32_t>(rt_args_idx++);
+        // uint32_t eth_channel = 0;
+        fwd_fabric_connection = tt::tt_fabric::WorkerToFabricEdmSender::build_from_args<ProgrammableCoreType::TENSIX>(
+            rt_args_idx, eth_channel);
 
         fwd_packet_header = reinterpret_cast<volatile tt_l1_ptr PACKET_HEADER_TYPE*>(packet_header_buffer_address);
         zero_l1_buf((uint32_t*)packet_header_buffer_address, sizeof(PACKET_HEADER_TYPE));

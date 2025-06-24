@@ -182,6 +182,7 @@ private:
 
     void write_routing_tables_to_eth_cores(MeshId mesh_id, chip_id_t chip_id) const;
     void write_routing_tables_to_tensix_cores(MeshId mesh_id, chip_id_t chip_id) const;
+    void write_fabric_connections_to_tensix_cores(MeshId mesh_id, chip_id_t chip_id) const;
 
     // Initialize internal map of physical chip_id to intermesh ethernet links
     void initialize_intermesh_eth_links();
