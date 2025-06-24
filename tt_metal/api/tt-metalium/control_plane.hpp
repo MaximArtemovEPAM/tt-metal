@@ -23,6 +23,11 @@ namespace tt::tt_fabric {
 
 class FabricContext;
 
+struct LocalMeshInfo {
+    MeshId mesh_id;
+    HostRankId host_rank;
+};
+
 class ControlPlane {
 public:
     explicit ControlPlane(const std::string& mesh_graph_desc_yaml_file);
@@ -139,8 +144,14 @@ public:
     // by SPI-ROM firmware)
     uint64_t get_asic_id(chip_id_t chip_id) const;
 
+    LocalMeshInfo get_local_mesh_info() const {
+        TT_FATAL(local_mesh_info_.has_value(), "Local mesh info is not initialized");
+        return local_mesh_info_.value();
+    }
+
 private:
     uint16_t routing_mode_ = 0;  // ROUTING_MODE_UNDEFINED
+    std::optional<LocalMeshInfo> local_mesh_info_;
     // TODO: remove this from local node control plane. Can get it from the global control plane
     std::unique_ptr<RoutingTableGenerator> routing_table_generator_;
 
@@ -160,6 +171,9 @@ private:
     std::unordered_map<chip_id_t, std::vector<std::pair<CoreCoord, chan_id_t>>> intermesh_eth_links_;
     // Stores a table of all local intermesh links (board_id, chan_id) and the corresponding remote intermesh links
     IntermeshLinkTable intermesh_link_table_;
+
+    std::unordered_map<MeshId, std::map<EthChanDescriptor, EthChanDescriptor>> peer_intermesh_link_tables_;
+
     std::unordered_map<chip_id_t, uint64_t> chip_id_to_asic_id_;
     // custom logic to order eth channels
     void order_ethernet_channels();
@@ -200,6 +214,9 @@ private:
 
     // Populate the local intermesh link to remote intermesh link table
     void generate_local_intermesh_link_table();
+
+    // All to All exchange of intermesh link tables between all hosts in the system
+    void exchange_intermesh_link_tables();
 
     // Initialize internal map of physical chip_id to intermesh ethernet links
     void initialize_intermesh_eth_links();

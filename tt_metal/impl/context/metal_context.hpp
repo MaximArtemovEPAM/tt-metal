@@ -116,6 +116,7 @@ private:
     // according to which links are available.
     tt_metal::FabricReliabilityMode fabric_reliability_mode_ = tt_metal::FabricReliabilityMode::STRICT_SYSTEM_HEALTH_SETUP_MODE;
     uint8_t num_fabric_active_routing_planes_ = 0;
+    std::shared_ptr<distributed::multihost::DistributedContext> distributed_context_;
 };
 
 }  // namespace tt::tt_metal

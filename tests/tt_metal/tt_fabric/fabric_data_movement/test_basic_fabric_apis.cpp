@@ -762,19 +762,37 @@ TEST_F(Fabric2DDynamicFixture, TestUnicastRaw) {
 }
 
 // 2D Dynamic Routing Unicast Tests
-TEST_P(T3kCustomMeshGraphFabric2DDynamicFixture, TestUnicastRaw) {
+TEST_P(T3kCustomMeshGraphFabric2DDynamicFixture, TestCustomUnicastRaw) {
     auto [mesh_graph_desc_path, mesh_graph_eth_coords] = GetParam();
     CustomMeshGraphFabric2DDynamicFixture::SetUp(
         mesh_graph_desc_path, get_physical_chip_mapping_from_eth_coords_mapping(mesh_graph_eth_coords));
-    for (uint32_t i = 0; i < 10; i++) {
+    for (uint32_t i = 0; i < 20; i++) {
         RunTestUnicastRaw(this);
+    }
+}
+
+TEST_P(T3kCustomMeshGraphFabric2DDynamicFixture, TestCustomMultiMeshMcast) {
+    auto [mesh_graph_desc_path, mesh_graph_eth_coords] = GetParam();
+    CustomMeshGraphFabric2DDynamicFixture::SetUp(
+        mesh_graph_desc_path, get_physical_chip_mapping_from_eth_coords_mapping(mesh_graph_eth_coords));
+
+    std::vector<FabricNodeId> mcast_req_nodes = {
+        FabricNodeId(MeshId{0}, 1), FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 2)};
+    std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 0)};
+    std::vector<McastRoutingInfo> routing_info = {
+        McastRoutingInfo{.mcast_dir = RoutingDirection::E, .num_mcast_hops = 1}};
+    std::vector<std::vector<FabricNodeId>> mcast_group_node_ids = {
+        {FabricNodeId(MeshId{1}, 3)}, {FabricNodeId(MeshId{1}, 1)}};
+    for (uint32_t i = 0; i < 20; i++) {
+        RunMultiMeshLineMcast(
+            this, mcast_req_nodes[i % 4], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
     }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     T3kCustomMeshGraphFabric2DDynamicTests,
     T3kCustomMeshGraphFabric2DDynamicFixture,
-    ::testing::ValuesIn(t3k_mesh_descriptor_chip_mappings));
+    ::testing::ValuesIn(t3k_disjoint_mesh_descriptor_chip_mappings));
 
 TEST_F(Fabric2DDynamicFixture, TestUnicastConnAPI) { RunTestUnicastConnAPI(this, 1); }
 

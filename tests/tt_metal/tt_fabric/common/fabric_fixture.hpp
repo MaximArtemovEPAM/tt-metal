@@ -11,6 +11,7 @@
 #include "tt_metal/test_utils/env_vars.hpp"
 #include <tt-metalium/tt_backend_api_types.hpp>
 #include "impl/context/metal_context.hpp"
+#include <tt-metalium/distributed_context.hpp>
 
 namespace tt::tt_fabric {
 namespace fabric_router_tests {
@@ -128,11 +129,11 @@ private:
 class T3kCustomMeshGraphFabric2DDynamicFixture
     : public CustomMeshGraphFabric2DDynamicFixture,
       public testing::WithParamInterface<std::tuple<std::string, std::vector<std::vector<eth_coord_t>>>> {
-    void SetUp() override {
-        if (tt::tt_metal::MetalContext::instance().get_cluster().get_cluster_type() != tt::ClusterType::T3K) {
-            GTEST_SKIP();
-        }
-    }
+    // void SetUp() override {
+    //     if (tt::tt_metal::MetalContext::instance().get_cluster().get_cluster_type() != tt::ClusterType::T3K) {
+    //         GTEST_SKIP();
+    //     }
+    // }
 };
 
 struct McastRoutingInfo {
@@ -160,6 +161,13 @@ void RunTestMCastConnAPI(
 
 void RunTestLineMcast(
     BaseFabricFixture* fixture, RoutingDirection unicast_dir, const std::vector<McastRoutingInfo>& mcast_routing_info);
+
+void RunMultiMeshLineMcast(
+    BaseFabricFixture* fixture,
+    FabricNodeId mcast_request_node,
+    FabricNodeId mcast_start_node,
+    const std::vector<McastRoutingInfo>& mcast_routing_info,
+    const std::vector<FabricNodeId>& mcast_group_node_ids);
 
 }  // namespace fabric_router_tests
 }  // namespace tt::tt_fabric
