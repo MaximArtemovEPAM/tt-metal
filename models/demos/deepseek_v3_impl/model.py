@@ -146,9 +146,10 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x: torch.Tensor):
+        x_dtype = x.dtype
         x = x.float()
         y = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-        return y.type_as(self.weight) * self.weight
+        return (y.type_as(self.weight) * self.weight).to(x_dtype)
 
 
 def precompute_freqs_cis(args: ModelArgs) -> torch.Tensor:
@@ -235,10 +236,14 @@ class MLA(nn.Module):
             )
         else:
             self.register_buffer(
-                "kv_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank), persistent=False
+                "kv_cache",
+                torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank, dtype=torch.bfloat16),
+                persistent=False,
             )
             self.register_buffer(
-                "pe_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim), persistent=False
+                "pe_cache",
+                torch.zeros(args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim, dtype=torch.bfloat16),
+                persistent=False,
             )
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
