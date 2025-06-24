@@ -859,13 +859,13 @@ void run_sender_channel_step_impl(
             tt::tt_fabric::validate(*packet_header);
             packet_header_recorder.record_packet_header(reinterpret_cast<volatile uint32_t*>(packet_header));
         }
-        DPRINT << "send_data\n";  // uncommenting this causes a hang
         send_next_data<sender_channel_index, to_receiver_pkts_sent_id, SKIP_CONNECTION_LIVENESS_CHECK>(
             local_sender_channel,
             local_sender_channel_worker_interface,
             outbound_to_receiver_channel_pointers,
             remote_receiver_channel);
         increment_local_update_ptr_val(sender_channel_free_slots_stream_id, 1);
+        DPRINT << "send_data\n";  // uncommenting this causes a hang
     }
 
     // Process COMPLETIONs from receiver
@@ -1106,10 +1106,10 @@ void run_receiver_channel_step_impl(
             can_send_completion = can_send_completion && !internal_::eth_txq_is_busy(DEFAULT_ETH_TXQ);
         }
         if (can_send_completion) {
-            // DPRINT << "RX send completion\n";
             receiver_send_completion_ack(receiver_channel_pointers.get_src_chan_id(receiver_buffer_index));
             receiver_channel_trid_tracker.clear_trid_at_buffer_slot(receiver_buffer_index);
             completion_counter.increment();
+            DPRINT << "RX send completion\n";
         }
     }
 };
@@ -1426,6 +1426,58 @@ void populate_local_sender_channel_free_slots_stream_id_ordered_map(
     }
 }
 
+constexpr bool IS_TEARDOWN_MASTER() { return MY_ERISC_ID == 0; }
+
+FORCE_INLINE void teardown(
+    volatile tt_l1_ptr tt::tt_fabric::TerminationSignal* termination_signal_ptr,
+    volatile tt_l1_ptr tt::tt_fabric::EDMStatus* edm_status_ptr,
+    WriteTransactionIdTracker<RECEIVER_NUM_BUFFERS_ARRAY[0], NUM_TRANSACTION_IDS, 0> receiver_channel_0_trid_tracker,
+    WriteTransactionIdTracker<
+        RECEIVER_NUM_BUFFERS_ARRAY[NUM_RECEIVER_CHANNELS - 1],
+        NUM_TRANSACTION_IDS,
+        NUM_TRANSACTION_IDS> receiver_channel_1_trid_tracker) {
+    if constexpr (is_receiver_channel_serviced[0]) {
+        receiver_channel_0_trid_tracker.all_buffer_slot_transactions_acked();
+    }
+    if constexpr (is_receiver_channel_serviced[1]) {
+        receiver_channel_1_trid_tracker.all_buffer_slot_transactions_acked();
+    }
+
+    increment_local_update_ptr_val(MULTI_RISC_TEARDOWN_SYNC_STREAM_ID, 1);
+    while (get_ptr_val<MULTI_RISC_TEARDOWN_SYNC_STREAM_ID>() < static_cast<int32_t>(NUM_ACTIVE_ERISCS)) {
+        invalidate_l1_cache();
+    }
+
+    DPRINT << "DONE5\n";
+    // re-init the noc counters as the noc api used is not incrementing them
+    if constexpr (IS_TEARDOWN_MASTER()) {
+        DPRINT << "DONE4.1\n";
+        ncrisc_noc_counters_init();
+    }
+    DPRINT << "DONE4\n";
+
+    if constexpr (wait_for_host_signal) {
+        if constexpr (is_local_handshake_master) {
+            notify_subordinate_routers(
+                edm_channels_mask,
+                local_handshake_master_eth_chan,
+                (uint32_t)termination_signal_ptr,
+                *termination_signal_ptr);
+        }
+    }
+    // TODO: ADD TEARDOWN SYNCHRONIZATION
+    if constexpr (IS_TEARDOWN_MASTER()) {
+        DPRINT << "DONE3\n";
+        noc_async_write_barrier();
+        DPRINT << "DONE2\n";
+        noc_async_atomic_barrier();
+        DPRINT << "DONE1\n";
+
+        *edm_status_ptr = tt::tt_fabric::EDMStatus::TERMINATED;
+    }
+    DPRINT << "DONE\n";
+}
+
 void kernel_main() {
     eth_txq_reg_write(sender_txq_id, ETH_TXQ_DATA_PACKET_ACCEPT_AHEAD, DEFAULT_NUM_ETH_TXQ_DATA_PACKET_ACCEPT_AHEAD);
     if constexpr (receiver_txq_id != sender_txq_id) {
@@ -1435,6 +1487,9 @@ void kernel_main() {
     DPRINT << "KERNEL_MAIN\n";
     DPRINT << "NUM_SENDER_CHANNELS: " << (uint32_t)NUM_SENDER_CHANNELS << "\n";
     DPRINT << "NUM_RECEIVER_CHANNELS: " << (uint32_t)NUM_RECEIVER_CHANNELS << "\n";
+    DPRINT << "SENDER_NUM_BUFFERS_ARRAY[0]: " << (uint32_t)SENDER_NUM_BUFFERS_ARRAY[0] << "\n";
+    DPRINT << "SENDER_NUM_BUFFERS_ARRAY[1]: " << (uint32_t)SENDER_NUM_BUFFERS_ARRAY[1] << "\n";
+    DPRINT << "SENDER_NUM_BUFFERS_ARRAY[2]: " << (uint32_t)SENDER_NUM_BUFFERS_ARRAY[2] << "\n";
     //
     // COMMON CT ARGS (not specific to sender or receiver)
     //
@@ -1466,6 +1521,8 @@ void kernel_main() {
     init_ptr_val<receiver_channel_0_free_slots_from_north_stream_id>(DOWNSTREAM_SENDER_NUM_BUFFERS);
     init_ptr_val<receiver_channel_0_free_slots_from_south_stream_id>(DOWNSTREAM_SENDER_NUM_BUFFERS);
     init_ptr_val<receiver_channel_1_free_slots_from_downstream_stream_id>(DOWNSTREAM_SENDER_NUM_BUFFERS);
+
+    init_ptr_val<MULTI_RISC_TEARDOWN_SYNC_STREAM_ID>(0);
 
     if constexpr (is_2d_fabric) {
         init_ptr_val<sender_channel_free_slots_stream_ids[3]>(SENDER_NUM_BUFFERS_ARRAY[2]);  // NORTH
@@ -2059,40 +2116,10 @@ void kernel_main() {
         // *sender0_worker_semaphore_ptr = 99;
     }
 
-    DPRINT << "DONE6\n";
+    DPRINT << "Tearing down\n";
     // make sure all the noc transactions are acked before re-init the noc counters
-    if constexpr (is_receiver_channel_serviced[0]) {
-        receiver_channel_0_trid_tracker.all_buffer_slot_transactions_acked();
-    }
-    if constexpr (is_receiver_channel_serviced[1]) {
-        receiver_channel_1_trid_tracker.all_buffer_slot_transactions_acked();
-    }
+    teardown(termination_signal_ptr, edm_status_ptr, receiver_channel_0_trid_tracker, receiver_channel_1_trid_tracker);
 
-    DPRINT << "DONE5\n";
-    // re-init the noc counters as the noc api used is not incrementing them
-    if constexpr (is_sender_channel_serviced[0]) {
-        DPRINT << "DONE4.1\n";
-        ncrisc_noc_counters_init();
-    }
-    DPRINT << "DONE4\n";
-
-    if constexpr (wait_for_host_signal) {
-        if constexpr (is_local_handshake_master) {
-            notify_subordinate_routers(
-                edm_channels_mask,
-                local_handshake_master_eth_chan,
-                (uint32_t)termination_signal_ptr,
-                *termination_signal_ptr);
-        }
-    }
-    // TODO: ADD TEARDOWN SYNCHRONIZATION
-    DPRINT << "DONE3\n";
-    noc_async_write_barrier();
-    DPRINT << "DONE2\n";
-    noc_async_atomic_barrier();
-    DPRINT << "DONE1\n";
-
-    *edm_status_ptr = tt::tt_fabric::EDMStatus::TERMINATED;
     DPRINT << "DONE\n";
 
     WAYPOINT("DONE");

@@ -62,7 +62,7 @@ namespace tt::tt_fabric {
  * @param is_sender_channel_serviced Output parameter for sender channel service flags
  * @param is_receiver_channel_serviced Output parameter for receiver channel service flags
  */
-void configure_risc_settings(
+static void configure_risc_settings(
     size_t num_riscv_cores,
     size_t risc_id,
     tt::ARCH arch,
@@ -148,6 +148,10 @@ FabricEriscDatamoverConfig::FabricEriscDatamoverConfig(Topology topology) {
         tt::tt_metal::HalProgrammableCoreType::ACTIVE_ETH);
     for (uint32_t risc_id = 0; risc_id < this->num_riscv_cores; risc_id++) {
         this->risc_configs.emplace_back(risc_id);
+    }
+    // Ethernet txq IDs on WH are 0,1 and on BH are 0,1,2.
+    if (tt::tt_metal::hal::get_arch() == tt::ARCH::BLACKHOLE) {
+        this->receiver_txq_id = 1;
     }
 
     for (uint32_t i = 0; i < FabricEriscDatamoverConfig::num_receiver_channels; i++) {
@@ -957,6 +961,10 @@ std::vector<uint32_t> FabricEriscDatamoverBuilder::get_compile_time_args(uint32_
         default_num_eth_txq_data_packet_accept_ahead,
 
         default_handshake_context_switch_timeout,
+
+        risc_id,
+        this->get_configured_risc_count(),
+
         // Special marker to help with identifying misalignment bugs
         0x00c0ffee};
 
