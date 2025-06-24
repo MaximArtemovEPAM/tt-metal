@@ -6,7 +6,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 from loguru import logger
@@ -17,7 +16,7 @@ from models.demos.deepseek_v3.tt.mla_1d import MLA_1D
 from models.demos.deepseek_v3.utils.run_config import create_run_config
 
 # Import from local reference files instead of HuggingFace
-from models.demos.deepseek_v3_impl.model import MLA, ModelArgs
+from models.demos.deepseek_v3_impl.model import MLA, ModelArgs, precompute_freqs_cis
 from models.utility_functions import comp_pcc
 
 
@@ -37,13 +36,13 @@ def hf_config():
 
 
 @pytest.fixture
-def reference_model(hf_config):
+def reference(hf_config):
     """Get the actual DeepSeek MLP model using local implementation."""
 
     config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
     with open(config_path) as f:
         model_args = ModelArgs(**json.load(f))
-    return MLA(model_args)
+    return model_args, MLA(model_args)
 
 
 def get_mesh_device():
@@ -66,8 +65,10 @@ def get_mesh_device():
     ],
     indirect=True,
 )
-def test_convert_weights(reference_model, hf_config, temp_dir, mesh_device):
+def test_convert_weights(reference, hf_config, temp_dir, mesh_device):
     """Test that weights are correctly converted to TTNN format."""
+
+    _, reference_model = reference
 
     output_path = temp_dir
 
@@ -103,11 +104,12 @@ def test_decode_config_generation(hf_config, mesh_device):
     [get_mesh_device()],
     indirect=True,
 )
-def test_run_config_creation(reference_model, hf_config, temp_dir, mesh_device):
+def test_run_config_creation(reference, hf_config, temp_dir, mesh_device):
     """Test creating runtime config from ModelConfig and weights."""
     logger.info(f"Creating run config for MLA_1D")
 
     # Get state dict from actual model - pass directly to convert_weights
+    _, reference_model = reference
     hf_state_dict = reference_model.state_dict()
 
     # First convert weights and get weight_config
@@ -134,19 +136,19 @@ def test_run_config_creation(reference_model, hf_config, temp_dir, mesh_device):
 @pytest.mark.parametrize(
     "mode, seq_len, batch_size",
     [
-        ("decode", 32, 64),
+        ("decode", 1024, 2),
     ],
 )
 def test_forward_pass(
     mode,
     seq_len,
     batch_size,
-    reference_model,
+    reference,
     hf_config,
     temp_dir,
     mesh_device,
 ):
-    pytest.skip("Not ready to be tested yet!")
+    reference_args, reference_model = reference
 
     ############################
     ### Set up configs
@@ -164,16 +166,26 @@ def test_forward_pass(
     ############################
     ### Torch inputs
     ############################
-    position_ids = np.linspace(0, seq_len - 1, batch_size, dtype=np.int32).tolist() if batch_size > 1 else [seq_len]
+    start_pos = seq_len
+    freqs_cis = precompute_freqs_cis(reference_args)[start_pos, :]
+
     if mode == "prefill":
-        torch_input = torch.randn(batch_size, 1, seq_len, hf_config.hidden_size)
+        torch_input = torch.randn(batch_size, seq_len, hf_config.hidden_size)
     else:
         torch_input = torch.randn(batch_size, 1, hf_config.hidden_size)
+    torch_input = torch_input.to(dtype=torch.bfloat16)
 
     ############################
     ### Torch reference
     ############################
-    reference_output = None  # reference_model(torch_input)
+    reference_output = reference_model(
+        torch_input,
+        start_pos=start_pos,
+        freqs_cis=freqs_cis,
+        mask=None,
+    )
+
+    breakpoint()
 
     ############################
     ### TTNN inputs
