@@ -33,7 +33,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
     needed_padding = (batch_size - len(prompts) % batch_size) % batch_size
     prompts = prompts + [""] * needed_padding
 
-    guidance_scale = 5.0
+    guidance_scale = 8.0
 
     # 0. Set up default height and width for unet
     height = 1024
@@ -86,6 +86,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
     cpu_device = "cpu"
 
     neg_prompt = "normal quality, low quality, worst quality, low res, blurry, nsfw, nude"
+    # neg_prompt = None
     all_embeds = [
         pipeline.encode_prompt(
             prompt=prompt,
@@ -94,7 +95,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
             num_images_per_prompt=1,
             do_classifier_free_guidance=True,
             negative_prompt=neg_prompt,
-            negative_prompt_2=None,
+            negative_prompt_2=neg_prompt,
             prompt_embeds=None,
             negative_prompt_embeds=None,
             pooled_prompt_embeds=None,
@@ -116,6 +117,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
     timesteps, num_inference_steps = retrieve_timesteps(pipeline.scheduler, num_inference_steps, cpu_device, None, None)
 
     print("Negative prompt embeds: ", negative_prompt_embeds)
+    print("Negative pooled prompt embeds: ", negative_pooled_prompt_embeds)
 
     # Convert timesteps to ttnn
     ttnn_timesteps = []
@@ -320,7 +322,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
 @pytest.mark.parametrize("device_params", [{"l1_small_size": SDXL_L1_SMALL_SIZE}], indirect=True)
 @pytest.mark.parametrize(
     "prompt",
-    (("An astronaut riding a green horse"),),
+    (("some meat and vegetables are arranged on a white plate."),),
 )
 @pytest.mark.parametrize(
     "num_inference_steps",
