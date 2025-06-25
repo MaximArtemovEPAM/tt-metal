@@ -1,0 +1,42 @@
+name: Nightly Submodule Update
+
+on:
+  # schedule:
+  #   - cron: '0 20 * * *' # runs every day at 1:30 AM IST (20:00 UTC)
+  workflow_dispatch:     # optional: allow manual trigger
+
+jobs:
+  update-submodule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout parent repo
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update submodule
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          cd tt_metal/third_party/tt_llk
+          git checkout main
+          git pull origin main
+          cd ../../../
+
+          git add tt_metal/third_party/tt_llk
+          git commit -m "Nightly: Update LLK submodule" || echo "No changes to commit"
+          git push origin HEAD:nightly-update-submodule
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Nightly: Update LLK submodule"
+          title: "Nightly: Update LLK submodule"
+          branch: nightly-update-submodule
+          delete-branch: true
+          body: |
+            This PR updates the LLK submodule to the latest main commit.
+          draft: true
