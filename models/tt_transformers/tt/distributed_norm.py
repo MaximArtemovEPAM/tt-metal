@@ -89,7 +89,6 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm requires a gather
         if self.args.is_distributed_norm(mode):
-            print("distributed_norm")
             use_all_gather_async_minimal_interleaved = not x.is_sharded() and x.layout == ttnn.TILE_LAYOUT
             if use_all_gather_async_minimal_interleaved:
                 ag_input_dtype = x.dtype
@@ -125,6 +124,5 @@ class DistributedNorm(LightweightModule):
                     topology=self.args.ccl_topology(),
                     subdevice_id=self.worker_sub_device_id,
                 )
-            ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[self.worker_sub_device_id])
 
         return x

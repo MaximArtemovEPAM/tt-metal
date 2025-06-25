@@ -40,7 +40,6 @@ def tt_all_reduce(
             input_tensor = ttnn.sharded_to_interleaved(input_tensor_sharded, ttnn.L1_MEMORY_CONFIG)
             input_tensor_sharded.deallocate(True)
 
-        print("ccl")
         rs_input_dtype = input_tensor.dtype
         rs_input_shape = list(input_tensor.shape)
 
@@ -78,7 +77,6 @@ def tt_all_reduce(
             topology=topology,
             subdevice_id=worker_sub_device_id,
         )
-        ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
 
         input_tensor.deallocate(True)
         return reduced

@@ -817,7 +817,6 @@ class Attention(LightweightModule):
 
         # Non fused All Gather Matmul
         if self.use_fused_all_gather_matmul:  # is true for Ring topology
-            print("attention")
             use_all_gather_async_minimal_interleaved = (
                 not attn_output_11SH.is_sharded() and attn_output_11SH.layout == ttnn.TILE_LAYOUT
             )
@@ -855,7 +854,6 @@ class Attention(LightweightModule):
                     topology=self.ccl_topology,
                     subdevice_id=self.worker_sub_device_id,
                 )
-            ttnn.synchronize_device(self.mesh_device, sub_device_ids=[self.worker_sub_device_id])
 
         output_11SH = ttnn.linear(
             attn_output_11SH,
