@@ -81,7 +81,42 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm already performs a gather
         if self.args.is_multichip and not self.args.is_distributed_norm(mode):
-            x = ttnn.all_gather(x, dim=3, num_links=1, topology=self.args.ccl_topology(), memory_config=input_mem_cfg)
+            use_all_gather_async_minimal_interleaved = not x.is_sharded() and x.layout == ttnn.TILE_LAYOUT
+            if use_all_gather_async_minimal_interleaved:
+                ag_input_dtype = x.dtype
+                ag_output_shape = list(x.shape)
+                ag_output_shape[3] *= self.args.mesh_device.get_num_devices()
+
+                persistent_output_buffer = ttnn.from_torch(
+                    torch.zeros(ag_output_shape),
+                    device=self.args.mesh_device,
+                    layout=ttnn.TILE_LAYOUT,
+                    dtype=ag_input_dtype,
+                    memory_config=input_mem_cfg,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(self.args.mesh_device),
+                )
+
+                x = ttnn.experimental.all_gather_async(
+                    x,
+                    persistent_output_buffer=persistent_output_buffer,
+                    dim=3,
+                    multi_device_global_semaphore=self.multi_device_global_semaphore_handles[:2],
+                    num_links=1,
+                    memory_config=input_mem_cfg,
+                    topology=self.args.ccl_topology(),
+                    subdevice_id=self.worker_sub_device_id,
+                )
+            else:
+                x = ttnn.experimental.all_gather_async(
+                    x,
+                    dim=3,
+                    multi_device_global_semaphore=self.multi_device_global_semaphore_handles[0],
+                    num_links=1,
+                    memory_config=input_mem_cfg,
+                    topology=self.args.ccl_topology(),
+                    subdevice_id=self.worker_sub_device_id,
+                )
+            ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[self.worker_sub_device_id])
         else:
             x = ttnn.to_memory_config(x, input_mem_cfg)
 

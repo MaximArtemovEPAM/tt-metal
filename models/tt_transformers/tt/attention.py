@@ -538,6 +538,8 @@ class Attention(LightweightModule):
             attn_output_cat = ttnn.to_memory_config(
                 attn_output_cat, self.model_config["ATTN_ALL_GATHER_MATMUL_OUTPUT_MEMCFG"]
             )
+
+            # TODO: (GR)
             _, dense_out_sharded, _ = ttnn.experimental.all_gather_matmul(
                 attn_output_cat,
                 self.wo,
@@ -598,6 +600,8 @@ class Attention(LightweightModule):
                 num_all_gather_links=self.num_all_gather_links,
                 dim=0 if (self.TG and self.hidden_size < 8192) else 3,
                 topology=self.ccl_topology,
+                multi_device_global_semaphore_handles=self.multi_device_global_semaphore_handles,
+                worker_sub_device_id=self.worker_sub_device_id,
                 memory_config=(
                     (
                         self.model_config["SELF_OUT_REDUCE_SCATTER_MEMCFG"]

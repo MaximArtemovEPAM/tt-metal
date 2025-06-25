@@ -356,7 +356,45 @@ class Transformer(LightweightModule):
                     topology=self.args.ccl_topology(),
                 )
             else:
-                tt_logits = ttnn.all_gather(tt_logits, dim=3, num_links=1, topology=self.args.ccl_topology())
+                use_all_gather_async_minimal_interleaved = (
+                    not tt_logits.is_sharded() and tt_logits.layout == ttnn.TILE_LAYOUT
+                )
+                if use_all_gather_async_minimal_interleaved:
+                    ag_input_dtype = tt_logits.dtype
+                    ag_output_shape = list(tt_logits.shape)
+                    ag_output_shape[3] *= self.mesh_device.get_num_devices()
+
+                    persistent_output_buffer = ttnn.from_torch(
+                        torch.zeros(ag_output_shape),
+                        device=self.mesh_device,
+                        layout=ttnn.TILE_LAYOUT,
+                        dtype=ag_input_dtype,
+                        memory_config=input_mem_cfg,
+                        mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+                    )
+
+                    tt_logits = ttnn.experimental.all_gather_async(
+                        tt_logits,
+                        persistent_output_buffer=persistent_output_buffer,
+                        dim=3,
+                        multi_device_global_semaphore=self.multi_device_global_semaphore_handles[:2],
+                        num_links=1,
+                        memory_config=input_mem_cfg,
+                        topology=self.args.ccl_topology(),
+                        subdevice_id=self.worker_sub_device_id,
+                    )
+                else:
+                    tt_logits = ttnn.experimental.all_gather_async(
+                        tt_logits,
+                        dim=3,
+                        multi_device_global_semaphore=self.multi_device_global_semaphore_handles[0],
+                        num_links=1,
+                        memory_config=input_mem_cfg,
+                        topology=self.args.ccl_topology(),
+                        subdevice_id=self.worker_sub_device_id,
+                    )
+                ttnn.synchronize_device(self.mesh_device, sub_device_ids=[self.worker_sub_device_id])
+
         tt_logits = ttnn.untilize(tt_logits, use_multicore=True)
 
         if argmax_on_device:
