@@ -27,6 +27,13 @@ class TtGEGLU(nn.Module):
         self.program_config_gelu = model_config.get_matmul_config(matmul_path=f"{module_path}.proj.split.gelu")
         self.compute_config = model_config.get_mm_compute_config(f"{module_path}.proj")
 
+        self.compute_config = ttnn.WormholeComputeKernelConfig(
+            math_fidelity=ttnn.MathFidelity.LoFi,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
+
         assert self.program_config is not None, "Program config for split weights is None"
         assert self.program_config_gelu is not None, "Program config for split weights with GELU is None"
 

@@ -31,6 +31,13 @@ class TtFeedForward(nn.Module):
         assert self.ff2_model_config is not None, "ff2_model_config should not be None"
         self.default_compute_kernel_config = model_config.get_mm_compute_config(module_path)
 
+        self.default_compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+            math_fidelity=ttnn.MathFidelity.LoFi,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
+
     def forward(self, hidden_states):
         hidden_states = self.tt_geglu(hidden_states)
 
@@ -42,6 +49,7 @@ class TtFeedForward(nn.Module):
             memory_config=ttnn.L1_BLOCK_SHARDED_MEMORY_CONFIG,
             compute_kernel_config=self.default_compute_kernel_config,
         )
+
         hidden_states = ttnn.to_memory_config(hidden_states, ttnn.DRAM_MEMORY_CONFIG)
 
         return hidden_states
