@@ -2,12 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+import math
+
 import torch
 
 import ttnn
 from models.demos.deepseek_v3.utils.abstract_module import AbstractModule
-from models.demos.deepseek_v3.utils.config_dataclass import LinearConfig
+from models.demos.deepseek_v3.utils.config_dataclass import LinearConfig, ReshardConfig
 from models.demos.deepseek_v3.utils.config_helpers import TILE_SIZE
+
+
+def nearest_n(x, n):
+    return ((x + n - 1) // n) * n
 
 
 class MLA_1D(AbstractModule):
@@ -156,9 +162,16 @@ class MLA_1D(AbstractModule):
         torch_weight = torch_weight.reshape(num_heads, -1, kv_lora_rank)
 
         torch_weight_k = torch_weight[:, :qk_nope_head_dim, :]  # [num_heads, qk_nope_head_dim, kv_lora_rank]
+        torch_weight_k = torch_weight_k.unsqueeze(0).repeat(
+            MLA_1D.MAX_BATCH_SIZE, 1, 1, 1
+        )  # [batch_size, num_heads, qk_nope_head_dim, kv_lora_rank]
+
         torch_weight_v = torch_weight[:, qk_nope_head_dim:, :].transpose(
             -2, -1
         )  # [num_heads, kv_lora_rank, v_head_dim]
+        torch_weight_v = torch_weight_v.unsqueeze(0).repeat(
+            MLA_1D.MAX_BATCH_SIZE, 1, 1, 1
+        )  # [batch_size, num_heads, kv_lora_rank, v_head_dim]
 
         # if num_devices == 1:
         #     torch_weight_k = torch_weight_k[: torch_weight_k.shape[0] // TG_GRID[0], ...]
@@ -253,6 +266,16 @@ class MLA_1D(AbstractModule):
         dim = hf_config.hidden_size
         hidden_dim = hf_config.intermediate_size
         num_devices = mesh_device.get_num_devices()
+        grid_size = mesh_device.compute_with_storage_grid_size()
+
+        num_heads = hf_config.num_attention_heads
+        kv_lora_rank = hf_config.kv_lora_rank
+        qk_nope_head_dim = hf_config.qk_nope_head_dim
+        qk_rope_head_dim = hf_config.qk_rope_head_dim
+        qk_head_dim = qk_nope_head_dim + qk_rope_head_dim
+        v_head_dim = hf_config.v_head_dim
+        mscale = hf_config.rope_scaling["mscale"]
+        rope_factor = hf_config.rope_scaling["factor"]
 
         config = {"mode": "decode"}
 
@@ -286,6 +309,77 @@ class MLA_1D(AbstractModule):
             program_config=None,
         )
 
+        # Resharding for kvpe
+        kvpe_shape = (1, MLA_1D.MAX_BATCH_SIZE, 1, kv_lora_rank + qk_rope_head_dim)
+        kvpe_shard_height = nearest_n(kvpe_shape[2], ttnn.TILE_SIZE)
+        kvpe_shard_width = kvpe_shape[3]
+        kvpe_num_cores = kvpe_shape[1]
+        kvpe_core_grid = ttnn.num_cores_to_corerangeset(kvpe_num_cores, grid_size, row_wise=True)
+        kvpe_mem_cfg = ttnn.create_sharded_memory_config(
+            shape=(kvpe_shard_height, kvpe_shard_width),
+            core_grid=kvpe_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        config["kvpe_reshard"] = ReshardConfig(
+            memory_config=kvpe_mem_cfg,
+        )
+
+        # FlashMLA
+        q_chunk_size = 0  # Unused in decode mode
+        k_chunk_size = 128  # TODO: Make dynamic?
+
+        sdpa_program_config = ttnn.SDPAProgramConfig(
+            compute_with_storage_grid_size=grid_size,
+            q_chunk_size=q_chunk_size,
+            k_chunk_size=k_chunk_size,
+            exp_approx_mode=False,
+        )
+
+        flash_mla_compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+            math_fidelity=ttnn.MathFidelity.HiFi4,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=False,
+        )
+
+        q_num_cores = MLA_1D.MAX_BATCH_SIZE  # TODO: How to use non-padded batch size here? (might need to be dynamic)
+        block_height = nearest_n((MLA_1D.MAX_BATCH_SIZE * num_heads) // q_num_cores, ttnn.TILE_SIZE)
+        block_width = kv_lora_rank + qk_rope_head_dim
+
+        q_core_grid = ttnn.num_cores_to_corerangeset(q_num_cores, grid_size, row_wise=True)
+        q_mem_config = ttnn.create_sharded_memory_config(
+            shape=(block_height, block_width),
+            core_grid=q_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        flash_mla_out_mem_config = ttnn.create_sharded_memory_config(
+            shape=(block_height, kv_lora_rank),
+            core_grid=q_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+
+        scale = qk_head_dim**-0.5
+        # If max_seq_len > original max_seq_len (4k)
+        mscale = 0.1 * mscale * math.log(rope_factor) + 1.0
+        scale = scale * mscale * mscale
+
+        config["flash_mla_reshard"] = ReshardConfig(
+            memory_config=q_mem_config,
+        )
+        config["flash_mla"] = {
+            "head_dim_v": kv_lora_rank,
+            "scale": scale,
+            "program_config": sdpa_program_config,
+            "compute_kernel_config": flash_mla_compute_kernel_config,
+            "memory_config": flash_mla_out_mem_config,
+        }
+        config["flash_mla_out_reshard"] = ReshardConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
         return config
 
     def __init__(self, hf_config, mesh_device):
@@ -310,26 +404,138 @@ class MLA_1D(AbstractModule):
         hidden_dim = hf_config.intermediate_size
         num_devices = mesh_device.get_num_devices()
 
+        self.num_heads = hf_config.num_attention_heads
+        self.kv_lora_rank = hf_config.kv_lora_rank
+        self.qk_nope_head_dim = hf_config.qk_nope_head_dim
+        self.qk_rope_head_dim = hf_config.qk_rope_head_dim
+        self.v_head_dim = hf_config.v_head_dim
+        self.qk_head_dim = self.qk_nope_head_dim + self.qk_rope_head_dim
+        self.max_seq_len = hf_config.max_seq_len
+
+        # TODO: Set up Norm module
         # TODO: Set up RoPE module
 
-        # TODO: Set up KVPE Cache
+        self.kvpe_cache = self.init_cache(hf_config, mesh_device)
 
-    def forward(self, x, cfg, mesh_device):
+    def init_cache(self, hf_config, mesh_device):
+        """Initialize the KVPE cache for this MLA_1D layer.
+
+        Args:
+            hf_config: HuggingFace model configuration object
+            mesh_device: TTNN mesh device
+
+        Returns:
+            Initialized KVPE cache tensor
+        """
+
+        self.kvpe_dim = self.kv_lora_rank + self.qk_rope_head_dim
+        self.kvpe_cache_dtype = ttnn.bfloat8_b
+        self.kvpe_cache_layout = ttnn.TILE_LAYOUT
+        self.kvpe_cache_mem_config = ttnn.DRAM_MEMORY_CONFIG
+
+        cache = torch.zeros(
+            (
+                MLA_1D.MAX_BATCH_SIZE,
+                1,  # 1 latent kv heads
+                self.max_seq_len,
+                self.kvpe_dim,
+            )
+        )
+
+        tt_cache = ttnn.as_tensor(
+            cache,
+            dtype=self.kvpe_cache_dtype,
+            layout=self.kvpe_cache_layout,
+            device=mesh_device,
+            memory_config=self.kvpe_cache_mem_config,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+            # TODO: Add caching
+        )
+
+        return tt_cache
+
+    def forward(self, x, position_ids, cfg, mesh_device):
         """Decode is very straightforward but prefill reshapes and has dynamic program configs
         so we implement forward as two functions for clarity.
         """
         if cfg["mode"] == "decode":
-            return self._forward_decode(x, cfg, mesh_device)
+            return self._forward_decode(x, position_ids, cfg, mesh_device)
         else:
             assert cfg["mode"] == "prefill"
             return self._forward_prefill(x, cfg, mesh_device)
 
-    def _forward_decode(self, x, cfg, mesh_device):
+    def _forward_decode(self, x, position_ids, cfg, mesh_device):
         """Straightforward forward pass for decode mode"""
-        # Gate and up projections
-        q = ttnn.linear(x, **cfg["wq_a"])
 
-        return q
+        bsz = x.shape[2]
+
+        # wq_a and wq_b
+        tt_q = ttnn.linear(x, **cfg["wq_a"])
+        # TODO: Add norm
+        tt_q = ttnn.linear(tt_q, **cfg["wq_b"])
+
+        # TODO: Use local heads here
+        tt_q = ttnn.reshape(tt_q, (bsz, 1, self.num_heads, self.qk_head_dim))
+
+        tt_q_nope = ttnn.slice(tt_q, [0, 0, 0, 0], [bsz, 1, self.num_heads, self.qk_nope_head_dim])
+        tt_q_rope = ttnn.slice(tt_q, [0, 0, 0, self.qk_nope_head_dim], [bsz, 1, self.num_heads, self.qk_head_dim])
+
+        # wkv_b1
+        tt_q_nope = ttnn.permute(tt_q_nope, (0, 2, 1, 3))  # [bsz, num_heads, 1, qk_nope_head_dim]
+        tt_q_nope = ttnn.linear(tt_q_nope, **cfg["wkv_b1"])  # Expensive matmul (because replicated in batch)
+        tt_q_nope = ttnn.permute(tt_q_nope, (2, 0, 1, 3))  # [1, bsz, num_heads, qk_nope_head_dim]
+
+        # TODO: Add RoPE here for Q
+        tt_q_rope = ttnn.permute(tt_q_rope, (1, 0, 2, 3))  # [1, bsz, num_heads, qk_rope_head_dim], should be no-op
+
+        # Q ready for FlashMLA
+        tt_q = ttnn.concat([tt_q_nope, tt_q_rope], dim=-1)
+
+        # KVPE Stuff
+        tt_kv = ttnn.linear(x, **cfg["wkv_a"])
+        tt_kv_nope = ttnn.slice(tt_kv, [0, 0, 0, 0], [1, 1, bsz, self.kv_lora_rank])
+        tt_kv_rope = ttnn.slice(
+            tt_kv, [0, 0, 0, self.kv_lora_rank], [1, 1, bsz, self.kv_lora_rank + self.qk_rope_head_dim]
+        )
+        ttnn.deallocate(tt_kv)
+
+        # TODO: Add RoPE here for KV
+        tt_kvpe = ttnn.concat([tt_kv_nope, tt_kv_rope], dim=-1)
+        # TODO: Add Norm here for KVPE
+        tt_kvpe = ttnn.permute(tt_kvpe, (0, 2, 1, 3))  # [1, bsz, 1, kv_lora_rank + qk_rope_head_dim]
+        tt_kvpe = ttnn.to_memory_config(tt_kvpe, **cfg["kvpe_reshard"])
+        ttnn.deallocate(tt_kv_nope)
+        ttnn.deallocate(tt_kv_rope)
+
+        # Update KVPE Cache
+        ttnn.experimental.paged_update_cache(
+            self.kvpe_cache,
+            tt_kvpe,
+            update_idxs=position_ids,
+        )
+
+        # FlashMLA
+        tt_q = ttnn.to_memory_config(tt_q, **cfg["flash_mla_reshard"])
+        attn_out = ttnn.transformer.flash_mla_decode(
+            tt_q,
+            self.kvpe_cache,
+            cur_pos=position_ids,
+            **cfg["flash_mla"],
+        )  #  [1, bsz, num_heads, kv_lora_rank]
+        ttnn.deallocate(tt_q)
+        attn_out = ttnn.to_memory_config(attn_out, **cfg["flash_mla_out_reshard"])
+
+        # wkv_b2
+        # Very expensive matmul, replicated in batch
+        attn_out = ttnn.permute(attn_out, (1, 2, 0, 3))  # [bsz, num_heads, 1, kv_lora_rank]
+        v_out = ttnn.linear(attn_out, **cfg["wkv_b2"])  # [bsz, num_heads, 1, v_head_dim]
+        v_out = ttnn.permute(v_out, (2, 0, 1, 3))  # [1, bsz, num_heads, v_head_dim]
+
+        # wo
+        v_out = ttnn.reshape(v_out, (1, 1, bsz, self.num_heads * self.v_head_dim))
+        out = ttnn.linear(v_out, **cfg["wo"])  # [1, 1, bsz, dim]
+
+        return out
 
     def _forward_prefill(self, x, cfg, mesh_device):
         """Forward pass of the MLP.

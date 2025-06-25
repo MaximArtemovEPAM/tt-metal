@@ -32,11 +32,14 @@ def hf_config():
     """Load DeepSeek config for testing"""
     config = AutoConfig.from_pretrained("deepseek-ai/DeepSeek-R1-0528", trust_remote_code=True)
     config.num_hidden_layers = 1  # Reduce layers for testing
+    config.num_attention_heads = 32  # TODO: Remove when done with single-device testing
+    config.max_seq_len = 16 * 1024  # Set max sequence length for testing
+
     return config
 
 
 @pytest.fixture
-def reference(hf_config):
+def reference(hf_config, reset_seeds):
     """Get the actual DeepSeek MLP model using local implementation."""
 
     config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
@@ -140,7 +143,7 @@ def test_run_config_creation(reference, hf_config, temp_dir, mesh_device):
 @pytest.mark.parametrize(
     "mode, seq_len, batch_size",
     [
-        ("decode", 1024, 2),
+        ("decode", 1024, 32),
     ],
 )
 def test_forward_pass(
@@ -201,6 +204,7 @@ def test_forward_pass(
     # if num_devices == 1:
     #     torch_input = torch_input[..., :torch_input.shape[-1] // TG_GRID[0]]
 
+    # TODO: Need to handle padding for batch
     tt_input = ttnn.from_torch(
         torch_input,
         device=mesh_device,
@@ -209,19 +213,20 @@ def test_forward_pass(
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
         layout=ttnn.TILE_LAYOUT,
     )
+    position_ids = [start_pos] * batch_size  # TODO: Only support same position for all users
 
     ############################
     ### TTNN forward pass
     ############################
     tt_mla = MLA_1D(hf_config, mesh_device)
 
-    tt_output = tt_mla.forward(tt_input, run_config, mesh_device)
+    tt_output = tt_mla.forward(tt_input, position_ids, run_config, mesh_device)
     tt_output_torch = ttnn.to_torch(tt_output)
 
     if mode == "prefill":
         pass
     else:
-        tt_output_torch = tt_output_torch.squeeze(1).permute(1, 0, 2)
+        tt_output_torch = tt_output_torch.squeeze(0).permute(1, 0, 2)
 
     ############################
     ### Validation

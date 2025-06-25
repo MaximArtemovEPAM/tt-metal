@@ -69,7 +69,7 @@ class ModelConfig:
         self.args.qk_head_dim = self.args.qk_nope_head_dim + self.args.qk_rope_head_dim
 
         self.grid_size = (8, 8)
-        self.bsz = 64
+        self.bsz = 64 * 2  # Use padded shapes
         self.configs = {}
 
         #################
@@ -112,9 +112,9 @@ class ModelConfig:
         self.configs["WKV_A_OUT_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
 
         # wkv_b1
-        self.configs["WKV_B1_IN0_SHAPE"] = (1, self.bsz // DP, self.args.n_heads // TP, self.args.qk_nope_head_dim)
+        self.configs["WKV_B1_IN0_SHAPE"] = (self.bsz // DP, self.args.n_heads // TP, 1, self.args.qk_nope_head_dim)
         self.configs["WKV_B1_IN1_SHAPE"] = (
-            1,
+            self.bsz // DP,
             self.args.n_heads // TP,
             self.args.qk_nope_head_dim,
             self.args.kv_lora_rank,
@@ -127,8 +127,13 @@ class ModelConfig:
         self.configs["WKV_B1_OUT_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
 
         # wkv_b2
-        self.configs["WKV_B2_IN0_SHAPE"] = (1, self.bsz // DP, self.args.n_heads // TP, self.args.kv_lora_rank)
-        self.configs["WKV_B2_IN1_SHAPE"] = (1, self.args.n_heads // TP, self.args.kv_lora_rank, self.args.v_head_dim)
+        self.configs["WKV_B2_IN0_SHAPE"] = (self.bsz // DP, self.args.n_heads // TP, 1, self.args.kv_lora_rank)
+        self.configs["WKV_B2_IN1_SHAPE"] = (
+            self.bsz // DP,
+            self.args.n_heads // TP,
+            self.args.kv_lora_rank,
+            self.args.v_head_dim,
+        )
         self.configs["WKV_B2_IN0_DTYPE"] = ttnn.bfloat8_b
         self.configs["WKV_B2_IN1_DTYPE"] = ttnn.bfloat4_b
         self.configs["WKV_B2_PROGRAM_CFG"] = None

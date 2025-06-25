@@ -146,6 +146,7 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x: torch.Tensor):
+        return x
         x_dtype = x.dtype
         x = x.float()
         y = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -188,6 +189,7 @@ def precompute_freqs_cis(args: ModelArgs) -> torch.Tensor:
 
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+    return x
     dtype = x.dtype
     x = torch.view_as_complex(x.float().view(*x.shape[:-1], -1, 2))
     freqs_cis = freqs_cis.view(1, x.size(1), 1, x.size(-1))
@@ -253,11 +255,7 @@ class MLA(nn.Module):
                 with torch.no_grad():
                     param.copy_(torch.randn_like(param))
 
-    def bring_up_forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
-        return self.wq_a(x)
-
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
-        return self.bring_up_forward(x, start_pos, freqs_cis, mask)
         bsz, seqlen, _ = x.size()
         end_pos = start_pos + seqlen
         if self.q_lora_rank == 0:
