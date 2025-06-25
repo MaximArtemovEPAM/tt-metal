@@ -3883,7 +3883,6 @@ def test_conv2d_act_dealloc(
     )
 
     conv_config = ttnn.Conv2dConfig(
-        dtype=output_dtype,
         weights_dtype=weights_dtype,
         deallocate_activation=True,
         output_layout=output_layout,
@@ -3912,5 +3911,6 @@ def test_conv2d_act_dealloc(
         conv_config=conv_config,
         groups=groups,
         slice_config=slice_config,
+        dtype=output_dtype,
     )
     assert not tt_input_tensor.is_allocated(), "Input tensor is allocated"
