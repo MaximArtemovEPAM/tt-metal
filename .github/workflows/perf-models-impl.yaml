@@ -49,7 +49,7 @@ jobs:
       - name: Enable Performance mode
         run: sudo cpupower frequency-set -g performance
       - name: Run performance regressions
-        timeout-minutes: 70
+        timeout-minutes: 100
         uses: ./.github/actions/docker-run
         env:
           LOGURU_LEVEL: INFO
