@@ -39,6 +39,28 @@ class Transformer(LightweightModule):
         self.grid_size = self.args.max_grid_size
         state_dict_prefix = args.get_state_dict_prefix("", None)
 
+        self.compute_grid_size = mesh_device.compute_with_storage_grid_size()
+        self.ccl_sub_device_crs = ttnn.CoreRangeSet(
+            {
+                ttnn.CoreRange(
+                    ttnn.CoreCoord(0, 0), ttnn.CoreCoord(self.compute_grid_size.x - 1, self.compute_grid_size.y - 1)
+                )
+            }
+        )
+
+        # The used CCLs use up to 3 global semaphores
+        self.multi_device_global_semaphore_handles = [
+            ttnn.create_global_semaphore(self.mesh_device, self.ccl_sub_device_crs, 0) for _ in range(3)
+        ]
+
+        self.worker_sub_device_id = ttnn.SubDeviceId(0)
+
+        self.worker_sub_device = ttnn.SubDevice([self.ccl_sub_device_crs])
+        self.sub_device_stall_group = [self.worker_sub_device_id]
+        self.sub_device_manager = mesh_device.create_sub_device_manager([self.worker_sub_device], 0)
+        self.mesh_device.load_sub_device_manager(self.sub_device_manager)
+        self.mesh_device.set_sub_device_stall_group(self.sub_device_stall_group)
+
         self.embd = Embedding(
             mesh_device=mesh_device,
             args=args,
@@ -69,6 +91,8 @@ class Transformer(LightweightModule):
                 transformation_mats=self.trans_mats_dict,
                 paged_attention_config=paged_attention_config,
                 use_paged_kv_cache=use_paged_kv_cache,
+                multi_device_global_semaphore_handles=self.multi_device_global_semaphore_handles,
+                worker_sub_device_id=self.worker_sub_device_id,
             )
             for i in tqdm(range(self.n_layers))
         ]
@@ -86,9 +110,13 @@ class Transformer(LightweightModule):
                 sharded_program_config=self.model_config["SHARDED_NORM_LM_HEAD_PRGM_CFG"],
                 sharded_output_config=self.model_config["LM_HEAD_INPUT_MEMCFG"],
                 ccl_topology=self.args.ccl_topology(),
+                multi_device_global_semaphore_handles=self.multi_device_global_semaphore_handles,
+                worker_sub_device_id=self.worker_sub_device_id,
             ),
             args,
             args.is_galaxy,
+            multi_device_global_semaphore_handles=self.multi_device_global_semaphore_handles,
+            worker_sub_device_id=self.worker_sub_device_id,
         )
 
         self.lm_head = LMHead(

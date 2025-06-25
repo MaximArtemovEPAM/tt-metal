@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
 
 # SPDX-License-Identifier: Apache-2.0
+import torch
 
 import ttnn
 
@@ -18,6 +19,8 @@ def tt_all_reduce(
     sharded=False,
     dtype=ttnn.bfloat16,
     use_composite=False,
+    multi_device_global_semaphore_handles=None,
+    worker_sub_device_id=None,
 ):
     # N150
     if list(mesh_device.shape) == [1, 1] or (cluster_axis == 1 and 1 in list(mesh_device.shape)):
@@ -36,14 +39,47 @@ def tt_all_reduce(
             input_tensor_sharded = input_tensor
             input_tensor = ttnn.sharded_to_interleaved(input_tensor_sharded, ttnn.L1_MEMORY_CONFIG)
             input_tensor_sharded.deallocate(True)
-        reduced = ttnn.reduce_scatter(
-            input_tensor,
-            dim=dim,
-            math_op=ttnn.ReduceType.Sum,
-            num_links=num_reduce_scatter_links,
-            topology=topology,
+
+        print("ccl")
+        rs_input_dtype = input_tensor.dtype
+        rs_input_shape = list(input_tensor.shape)
+
+        rs_num_batches = rs_input_shape[0]
+        single_batch_input_shape = rs_input_shape[:]
+        single_batch_input_shape[2] //= rs_num_batches
+        persistent_intermediate_buffer = ttnn.from_torch(
+            torch.zeros(single_batch_input_shape),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=rs_input_dtype,
             memory_config=memory_config,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
         )
+
+        rs_output_shape = rs_input_shape[:]
+        rs_output_shape[3] //= mesh_device.get_num_devices()
+        persistent_output_buffer = ttnn.from_torch(
+            torch.zeros(rs_output_shape),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=rs_input_dtype,
+            memory_config=memory_config,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+        )
+
+        reduced = ttnn.experimental.reduce_scatter_minimal_async(
+            input_tensor,
+            persistent_intermediate_buffer=persistent_intermediate_buffer,
+            persistent_output_buffer=persistent_output_buffer,
+            dim=dim,
+            multi_device_global_semaphore=multi_device_global_semaphore_handles[:3],
+            num_links=num_reduce_scatter_links,
+            memory_config=memory_config,
+            topology=topology,
+            subdevice_id=worker_sub_device_id,
+        )
+        ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+
         input_tensor.deallocate(True)
         return reduced
 

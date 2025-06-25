@@ -25,6 +25,8 @@ class Attention(LightweightModule):
         configuration,
         paged_attention_config=None,
         use_paged_kv_cache=False,
+        multi_device_global_semaphore_handles=None,
+        worker_sub_device_id=None,
     ):
         super().__init__()
 
@@ -50,6 +52,9 @@ class Attention(LightweightModule):
         self.batch_size_per_device_group = (
             max(self.max_batch_size // self.num_device_groups, 1) if self.TG else self.max_batch_size
         )
+
+        self.multi_device_global_semaphore_handles = multi_device_global_semaphore_handles
+        self.worker_sub_device_id = worker_sub_device_id
 
         self.n_local_heads = self.n_heads // self.num_devices_per_group
         self.n_local_kv_heads = self.n_kv_heads // self.num_devices_per_group
@@ -812,13 +817,45 @@ class Attention(LightweightModule):
 
         # Non fused All Gather Matmul
         if self.use_fused_all_gather_matmul:  # is true for Ring topology
-            attn_output_11SH = ttnn.all_gather(
-                attn_output_11SH,
-                dim=3,
-                num_links=1,
-                topology=self.ccl_topology,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            print("attention")
+            use_all_gather_async_minimal_interleaved = (
+                not attn_output_11SH.is_sharded() and attn_output_11SH.layout == ttnn.TILE_LAYOUT
             )
+            if use_all_gather_async_minimal_interleaved:
+                ag_input_dtype = attn_output_11SH.dtype
+                ag_output_shape = list(attn_output_11SH.shape)
+                ag_output_shape[3] *= self.mesh_device.get_num_devices()
+
+                persistent_output_buffer = ttnn.from_torch(
+                    torch.zeros(ag_output_shape),
+                    device=self.mesh_device,
+                    layout=ttnn.TILE_LAYOUT,
+                    dtype=ag_input_dtype,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+                )
+
+                attn_output_11SH = ttnn.experimental.all_gather_async(
+                    attn_output_11SH,
+                    persistent_output_buffer=persistent_output_buffer,
+                    dim=3,
+                    multi_device_global_semaphore=self.multi_device_global_semaphore_handles[:2],
+                    num_links=1,
+                    topology=self.ccl_topology,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    subdevice_id=self.worker_sub_device_id,
+                )
+            else:
+                attn_output_11SH = ttnn.experimental.all_gather_async(
+                    attn_output_11SH,
+                    dim=3,
+                    multi_device_global_semaphore=self.multi_device_global_semaphore_handles[0],
+                    num_links=1,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    topology=self.ccl_topology,
+                    subdevice_id=self.worker_sub_device_id,
+                )
+            ttnn.synchronize_device(self.mesh_device, sub_device_ids=[self.worker_sub_device_id])
 
         output_11SH = ttnn.linear(
             attn_output_11SH,
@@ -845,6 +882,8 @@ class Attention(LightweightModule):
                 topology=self.ccl_topology,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 dtype=self.ccl_dtype,
+                multi_device_global_semaphore_handles=self.multi_device_global_semaphore_handles,
+                worker_sub_device_id=self.worker_sub_device_id,
             )
 
         return output_11SH

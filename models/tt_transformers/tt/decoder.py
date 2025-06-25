@@ -22,6 +22,8 @@ class TransformerBlock(LightweightModule):
         transformation_mats,
         paged_attention_config=None,
         use_paged_kv_cache=False,
+        multi_device_global_semaphore_handles=None,
+        worker_sub_device_id=None,
     ):
         super().__init__()
 
@@ -51,6 +53,8 @@ class TransformerBlock(LightweightModule):
             configuration=args,
             paged_attention_config=paged_attention_config,
             use_paged_kv_cache=use_paged_kv_cache,
+            multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
         self.feed_forward = MLP(
             mesh_device=mesh_device,
@@ -60,6 +64,8 @@ class TransformerBlock(LightweightModule):
             layer_num=layer_num,
             dtype=dtype,
             model_config=self.model_config,
+            multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
         self.attention_norm = DistributedNorm(
             RMSNorm(
@@ -75,9 +81,13 @@ class TransformerBlock(LightweightModule):
                 sharded_program_config=self.model_config["SHARDED_NORM_ATTN_PRGM_CFG"],
                 sharded_output_config=self.model_config["SHARDED_ATTN_INPUT_MEMCFG"],
                 ccl_topology=self.args.ccl_topology(),
+                multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+                worker_sub_device_id=worker_sub_device_id,
             ),
             args,
             TG=args.is_galaxy,
+            multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
         self.ff_norm = DistributedNorm(
             RMSNorm(
@@ -93,9 +103,13 @@ class TransformerBlock(LightweightModule):
                 sharded_program_config=self.model_config["SHARDED_NORM_MLP_PRGM_CFG"],
                 sharded_output_config=self.model_config["SHARDED_MLP_INPUT_MEMCFG"],
                 ccl_topology=self.args.ccl_topology(),
+                multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+                worker_sub_device_id=worker_sub_device_id,
             ),
             args,
             TG=args.is_galaxy,
+            multi_device_global_semaphore_handles=multi_device_global_semaphore_handles,
+            worker_sub_device_id=worker_sub_device_id,
         )
 
     def forward(
