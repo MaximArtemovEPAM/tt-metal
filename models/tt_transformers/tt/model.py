@@ -393,7 +393,6 @@ class Transformer(LightweightModule):
                         topology=self.args.ccl_topology(),
                         subdevice_id=self.worker_sub_device_id,
                     )
-                ttnn.synchronize_device(self.mesh_device, sub_device_ids=[self.worker_sub_device_id])
 
         tt_logits = ttnn.untilize(tt_logits, use_multicore=True)
 

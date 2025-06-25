@@ -116,7 +116,6 @@ class DistributedNorm(LightweightModule):
                     topology=self.args.ccl_topology(),
                     subdevice_id=self.worker_sub_device_id,
                 )
-            ttnn.synchronize_device(self.args.mesh_device, sub_device_ids=[self.worker_sub_device_id])
         else:
             x = ttnn.to_memory_config(x, input_mem_cfg)
 
