@@ -205,17 +205,153 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastSchemesWithoutLoopback)
         10. Sender out grid ending not column not row
 */
 
-TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastSchemeSingle) {
-    uint32_t test_case_id = 110;
+namespace multicast_schemes_debug::test_params {
 
-    bool loopback = false;
-    NOC noc_id = NOC::NOC_0;
-    uint32_t sub_grid_dimension_size = arch_ == ARCH::WORMHOLE_B0 ? 7 : 9;  // Adjust based on architecture
-    unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType multicast_scheme =
-        unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType::SenderInGridTopRight;
+static constexpr uint32_t test_case_id = 110;
+static constexpr bool loopback = false;
+static constexpr NOC noc_id = NOC::NOC_0;
+static constexpr uint32_t sub_grid_dimension_size = 9;
+
+}  // namespace multicast_schemes_debug::test_params
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme1) {
+    uint32_t multicast_scheme_number = 1;
 
     tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
-        arch_, devices_, num_devices_, test_case_id, sub_grid_dimension_size, noc_id, multicast_scheme, loopback);
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme2) {
+    uint32_t multicast_scheme_number = 2;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme3) {
+    uint32_t multicast_scheme_number = 3;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme4) {
+    uint32_t multicast_scheme_number = 4;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme5) {
+    uint32_t multicast_scheme_number = 5;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme6) {
+    uint32_t multicast_scheme_number = 6;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme7) {
+    uint32_t multicast_scheme_number = 7;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme8) {
+    uint32_t multicast_scheme_number = 8;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme9) {
+    uint32_t multicast_scheme_number = 9;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
+}
+
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme10) {
+    uint32_t multicast_scheme_number = 10;
+
+    tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
+        arch_,
+        devices_,
+        num_devices_,
+        multicast_schemes_debug::test_params::test_case_id,
+        multicast_schemes_debug::test_params::sub_grid_dimension_size,
+        multicast_schemes_debug::test_params::noc_id,
+        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
+        multicast_schemes_debug::test_params::loopback);
 }
 
 }  // namespace tt::tt_metal
