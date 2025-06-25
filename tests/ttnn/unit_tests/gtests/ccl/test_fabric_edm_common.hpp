@@ -83,6 +83,8 @@ protected:
     MeshShape GetDeterminedMeshShape() const {
         if (num_devices_ == TG_NUM_DEVICES || num_devices_ == GALAXY_6U_NUM_DEVICES) {
             return MeshShape{8, 4};
+        } else if (num_devices_ == 4) {
+            return MeshShape{2, 2};
         } else if (num_devices_ == 2) {
             return MeshShape{1, 2};
         } else {
