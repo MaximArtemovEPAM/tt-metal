@@ -22,16 +22,17 @@ namespace NAMESPACE {
 FORCE_INLINE
 void print_Wt_tiles(uint32_t cb_value, uint32_t Wt, uint32_t core_stage, uint32_t core_sub_dist) {
     // Debug: Print data
+    DPRINT_MATH(
+        DPRINT << __func__ << " - OUTPUT core stage = " << core_stage << ", core sub = " << core_sub_dist << ENDL());
     for (uint32_t w = 0; w < Wt; w++) {
         constexpr uint32_t INPUT_TILE0 = 0;
 
+        DPRINT << "[" << w << "]" << ENDL();
         // input_tensor_transposed_cb_index already in reserved state
         tile_regs_acquire();
         copy_tile_to_dst_init_short(cb_value);
         copy_tile(cb_value, w, INPUT_TILE0);
 
-        DPRINT_MATH(
-            DPRINT << "OUTPUT [" << w << "] core stage = " << core_stage << ", core sub = " << core_sub_dist << ENDL());
         dprint_tensix_dest_reg(INPUT_TILE0);
         tile_regs_commit();
 
@@ -303,7 +304,6 @@ void MAIN {
                 // DPRINT << TERM_COMPUTE << "[Compute] core stage #" << core_stage << "/" << intercore_stages <<
                 // ENDL();
                 // TODO: Compute ascending/descending parameters for each stage
-                bool select_min = (this_core_id ^ core_sub_dist) > this_core_id;
 
                 // If core takes minimum value then it must be sorted in ascending order
                 // If core takes maximum value then it must be sorted in descending order
@@ -320,12 +320,14 @@ void MAIN {
                 }
                 bool ascending_core = (this_core_id ^ next_core_sub_dist) > this_core_id;
 
+                uint32_t other_core_id = (this_core_id ^ next_core_sub_dist);
+
                 // ascending_core = ((this_core_id >> (core_stage)) & 1) == 0;
                 bool sort_direction = ((uint32_t)ascending_core == SortDirection::ASCENDING);
+                bool select_lower = other_core_id > this_core_id;
 
-                DPRINT_MATH(DPRINT << TERM_COMPUTE
-                                   << "[Compute] rebuilding bitonic sequence, core stage = " << core_stage
-                                   << ", core_sub = " << core_sub << ", select min = " << (uint32_t)select_min
+                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] Exchanging tiles, core stage = " << core_stage
+                                   << ", core_sub = " << core_sub << ", select lower = " << (uint32_t)select_lower
                                    << ", ascending core = " << (uint32_t)ascending_core
                                    << ", core sub dist = " << core_sub_dist << ", next core stage = " << next_core_stage
                                    << ", next core sub dist = " << next_core_sub_dist
@@ -369,6 +371,7 @@ void MAIN {
                 cb_wait_front(input_tensor_transposed_cb_index, Wt_per_core);
                 cb_wait_front(index_tensor_transposed_cb_index, Wt_per_core);
 
+                DPRINT << "=== Exchanging tiles ===" << ENDL();
                 for (uint32_t i = 0; i < Wt_per_core; i++) {
                     // DPRINT_UNPACK(
                     //     DPRINT << TERM_COMPUTE
@@ -413,30 +416,31 @@ void MAIN {
                     //     TERM_RESET
                     //             << ENDL(););
 
-                    // DPRINT_MATH(DPRINT << "TILE_INPUT0 [" << i << "] = " << ENDL());
-                    // dprint_tensix_dest_reg(TILE_INPUT0);
-                    // DPRINT_MATH(DPRINT << "TILE_INPUT1 [" << i << "] = " << ENDL());
-                    // dprint_tensix_dest_reg(TILE_INPUT1);
+                    DPRINT_MATH(DPRINT << "TILE_INPUT0 [" << i << "] = " << ENDL());
+                    dprint_tensix_dest_reg(TILE_INPUT0);
+                    DPRINT_MATH(DPRINT << "TILE_INPUT1 [" << i << "] = " << ENDL());
+                    dprint_tensix_dest_reg(TILE_INPUT1);
 
                     // DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] topk merge" << TERM_RESET << ENDL(););
-                    ckernel::topk_merge(TILE_INPUT0, (int)5, 32);
-                    // ckernel::topk_local_sort(TILE_INPUT0, (int)0, 5);
+                    // ckernel::topk_merge(TILE_INPUT0, (int)5, 32);
+                    // We can also use ckernel::topk_merge() but it would require second tile to be in reverse order
+                    ckernel::topk_local_sort(TILE_INPUT0, (int)sort_direction, 5);
 
                     // DPRINT << TERM_COMPUTE << "[Compute] merged tiles #" << i << TERM_RESET << ENDL();
 
-                    // DPRINT_MATH(DPRINT << "TILE_OUTPUT [" << i << "] = " << ENDL());
-                    // dprint_tensix_dest_reg(TILE_INPUT1);
+                    uint32_t output_value_tile = TILE_INPUT1;  // select max
+                    uint32_t output_index_tile = TILE_INDEX1;
+
+                    if (select_lower) {
+                        output_value_tile = TILE_INPUT0;
+                        output_index_tile = TILE_INDEX0;
+                    }
+                    DPRINT_MATH(DPRINT << "TILE_OUTPUT [" << i << "] = " << ENDL());
+                    dprint_tensix_dest_reg(output_value_tile);
 
                     tile_regs_commit();
 
                     tile_regs_wait();
-                    uint32_t output_value_tile = TILE_INPUT0;
-                    uint32_t output_index_tile = TILE_INDEX0;
-
-                    if (select_min) {
-                        output_value_tile = TILE_INPUT1;
-                        output_index_tile = TILE_INDEX1;
-                    }
 
                     pack_reconfig_data_format(input_tensor_transposed_cb_index);
                     pack_tile<true>(output_value_tile, input_tensor_transposed_cb_index, i);
@@ -488,7 +492,10 @@ void MAIN {
                 // Sort within tiles
                 int ascending_local = ascending_core;
 
+                // Sort pairs of tiles
                 uint32_t switch_dir = true;
+                DPRINT << "==== Rebuilding Bitonic Sequence, stage = " << core_stage
+                       << ", ascending = " << ascending_local << " ===" << ENDL();
                 for (uint32_t i = 0; i < Wt_per_core; i += 2) {
                     constexpr uint32_t INPUT_TILE0 = 0;
                     constexpr uint32_t INDEX_TILE0 = 2;
@@ -509,19 +516,19 @@ void MAIN {
                     copy_tile(input_tensor_transposed_cb_index, i, INPUT_TILE0);
                     copy_tile(input_tensor_transposed_cb_index, i + 1, INPUT_TILE1);
 
-                    // DPRINT_MATH(DPRINT << "INPUT0 (" << i << ")" << ENDL());
-                    // dprint_tensix_dest_reg_col0(INPUT_TILE0);
-                    // DPRINT_MATH(DPRINT << "INPUT1 (" << i + 1 << ")" << ENDL());
-                    // dprint_tensix_dest_reg_col0(INPUT_TILE1);
+                    DPRINT_MATH(DPRINT << "INPUT0 (" << i << ")" << ENDL());
+                    dprint_tensix_dest_reg(INPUT_TILE0);
+                    DPRINT_MATH(DPRINT << "INPUT1 (" << i + 1 << ")" << ENDL());
+                    dprint_tensix_dest_reg(INPUT_TILE1);
 
                     constexpr uint32_t end_phase = 5;
                     ckernel::topk_tile_init();
                     ckernel::topk_local_sort(INPUT_TILE0, (int)ascending_local, end_phase);
 
-                    // DPRINT_MATH(DPRINT << "OUTPUT0 (" << i << ")" << ENDL());
-                    // dprint_tensix_dest_reg_col0(INPUT_TILE0);
-                    // DPRINT_MATH(DPRINT << "OUTPUT1 (" << i + 1 << ")" << ENDL());
-                    // dprint_tensix_dest_reg_col0(INPUT_TILE1);
+                    DPRINT_MATH(DPRINT << "OUTPUT0 (" << i << ")" << ENDL());
+                    dprint_tensix_dest_reg(INPUT_TILE0);
+                    DPRINT_MATH(DPRINT << "OUTPUT1 (" << i + 1 << ")" << ENDL());
+                    dprint_tensix_dest_reg(INPUT_TILE1);
 
                     tile_regs_commit();
 
@@ -536,12 +543,12 @@ void MAIN {
 
                     tile_regs_release();
 
-                    ascending_local = switch_dir ? !ascending_local : ascending_local;
+                    // ascending_local = switch_dir ? !ascending_local : ascending_local;
                 }
                 // DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] start second merger" << TERM_RESET << ENDL(););
 
-                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] local sort, stage = " << core_stage
-                                   << ", core_sub = " << core_sub << TERM_RESET << ENDL(););
+                DPRINT_MATH(DPRINT << TERM_COMPUTE << "=== local sort, stage = " << core_stage
+                                   << ", core_sub = " << core_sub << " ===" << TERM_RESET << ENDL(););
                 print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
 
                 // TODO: Compute start stage
@@ -586,7 +593,7 @@ void MAIN {
                                 // DPRINT_MATH(DPRINT << "INPUT1 (" << right_tile_id << ") = " << ENDL());
                                 // dprint_tensix_dest_reg_col0(INPUT_TILE1);
 
-                                ckernel::topk_local_sort(0, (int)dir, 5);
+                                ckernel::topk_local_sort(0, (int)1, 5);
                                 // ckernel::topk_merge(INPUT_TILE0, 32, 5);
 
                                 // uint32_t min_value_tile = INPUT_TILE0;
@@ -622,6 +629,7 @@ void MAIN {
                     }
                 }
 
+                DPRINT << "L" << __LINE__ << " finished local sorting" << ENDL();
                 print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, core_stage, core_sub_dist);
 
                 // DPRINT << TERM_COMPUTE << "[Compute] finish second local sort" << TERM_RESET << ENDL();
