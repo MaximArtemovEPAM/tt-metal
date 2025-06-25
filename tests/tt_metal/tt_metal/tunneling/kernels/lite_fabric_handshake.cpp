@@ -43,20 +43,11 @@ void kernel_main() {
     bool multi_eth_cores_setup = get_arg_val<uint32_t>(3) == 1;
     uint32_t primary_eth_core_x = get_arg_val<uint32_t>(4);
     uint32_t primary_eth_core_y = get_arg_val<uint32_t>(5);
-    uint32_t num_local_eths = get_arg_val<uint32_t>(6);
     uint32_t eth_chans_mask = get_arg_val<uint32_t>(6);
 
     constexpr uint32_t local_handshake_stream_id = 0;
     constexpr uint32_t remote_handshake_stream_id = 1;  // neighbour eth core will write here
     /*
-        OLD
-        I-am-mmio-eth-setting-up-remote: 0
-        I-am-remote-eth-setting-up-local-eths: 1
-        I-am-waiting-on-local-handshake: 3
-        I-am-waiting-on-remote-handshake: 4
-        I-am-done-with-handshake: 5 // THIS NEEDS TO BE IN A SEPARATE REGISTER BECAUSE LOCAL HANDSHAKE AND REMOTE
-       HANDSHAKE CAN HAPPEN IN PARALLEL
-
 
         NEW - simple case where we only init one eth device
         I-am-mmio-eth-setting-up-remote: 0
@@ -72,7 +63,8 @@ void kernel_main() {
 
     constexpr uint32_t total_num_eths = sizeof(eth_chan_to_noc_xy[0]) / sizeof(eth_chan_to_noc_xy[0][0]);
 
-    set_state<local_handshake_stream_id>(0);
+    // set_state<local_handshake_stream_id>(0); // don't reset local just capture delta?
+    uint32_t initial_local_handshake_value = get_state<local_handshake_stream_id>();
     set_state<remote_handshake_stream_id>(0);  // maybe rename set_state
 
     int i = 0;
@@ -90,8 +82,9 @@ void kernel_main() {
                 // first send the rt args to the remote core
                 // set additional rt args in the kernel that are the x-y of this core
                 rta_l1_base[0] = 2;
+                // rta_l1_base[7] = 0;
                 uint32_t rt_arg_base_addr = get_arg_addr(0);
-                internal_::eth_send_packet<false>(0, rt_arg_base_addr >> 4, rt_arg_base_addr >> 4, 32 >> 4);
+                internal_::eth_send_packet<false>(0, rt_arg_base_addr >> 4, rt_arg_base_addr >> 4, 1024 >> 4); // just send all rt args for now
 
                 DPRINT << "Sent runtime args to " << HEX() << rt_arg_base_addr << DEC() << ENDL();
 
@@ -108,7 +101,6 @@ void kernel_main() {
                        << launch_and_go_msg_size_bytes << " go msg addr " << HEX()
                        << (launch_msg_addr + (sizeof(launch_msg_t) * launch_msg_buffer_num_entries)) << DEC() << ENDL();
 
-                // now we should go into local handshake state (skip for now) and then go into remote handshake state
                 uint32_t next_state = multi_eth_cores_setup ? 1 : 3;
                 state = next_state;
                 break;
@@ -116,9 +108,9 @@ void kernel_main() {
             case 1: {
                 // go over the eth chan header and do case 0 for all cores using noc writes
                 // set additional rt args in the kernel that are the x-y of this core
-                uint32_t local_handshake_addr =
-                    STREAM_REG_ADDR(local_handshake_stream_id, STREAM_REMOTE_DEST_BUF_SPACE_AVAILABLE_REG_INDEX);
-                volatile uint32_t* local_handshake_ptr = reinterpret_cast<volatile uint32_t*>(local_handshake_addr);
+                
+                uint32_t primary_local_handshake_addr = get_arg_addr(7); // for mmio devices make host clear these
+                uint32_t subordinate_local_handshake_addr = get_arg_addr(8);
 
                 if (initial_state == 0 or initial_state == 2) {
                     uint32_t remaining_cores = eth_chans_mask;
@@ -128,8 +120,9 @@ void kernel_main() {
                         }
                         if ((remaining_cores & (0x1 << i)) && (exclude_eth_chan != i)) {  // exclude_eth_chan is self
                             uint64_t dest_handshake_addr =
-                                get_noc_addr_helper(eth_chan_to_noc_xy[noc_index][i], local_handshake_addr);
-                            noc_inline_dw_write<true>(dest_handshake_addr, 1 << REMOTE_DEST_BUF_WORDS_FREE_INC);
+                                get_noc_addr_helper(eth_chan_to_noc_xy[noc_index][i], subordinate_local_handshake_addr);
+                            noc_semaphore_inc(dest_handshake_addr, 1);
+                            
                             if (initial_state == 2) {
                                 uint64_t dest_go_msg_addr =
                                     get_noc_addr_helper(eth_chan_to_noc_xy[noc_index][i], go_msg_addr);
@@ -151,9 +144,7 @@ void kernel_main() {
                     }
 
                 } else {
-                    noc_inline_dw_write<true>(
-                        get_noc_addr(primary_eth_core_x, primary_eth_core_y, local_handshake_addr),
-                        1 << REMOTE_DEST_BUF_WORDS_FREE_INC);
+                    noc_semaphore_inc(get_noc_addr(primary_eth_core_x, primary_eth_core_y, primary_local_handshake_addr), 1);
                     while (*local_handshake_ptr != 1) {
                         // wait for the primary eth core
                         invalidate_l1_cache();
@@ -165,6 +156,9 @@ void kernel_main() {
             }
             case 2: {
                 rta_l1_base[0] = 1;
+                rta_l1_base[7] = 0; // clear where subordinate eths will signal
+                rta_l1_base[8] = 0; // clear where primary eth will signal to subordinates
+                                     
                 uint32_t remaining_cores = eth_chans_mask;
                 for (uint32_t i = 0; i < total_num_eths; i++) {
                     if (remaining_cores == 0) {
@@ -177,7 +171,7 @@ void kernel_main() {
                             get_noc_addr_helper(eth_chan_to_noc_xy[noc_index][i], binary_address);
                         uint64_t dest_launch_and_go_addr =
                             get_noc_addr_helper(eth_chan_to_noc_xy[noc_index][i], launch_msg_addr);
-                        noc_async_write(rt_arg_base_addr, dest_rt_args_addr, 32);
+                        noc_async_write(rt_arg_base_addr, dest_rt_args_addr, 1024);
                         noc_async_write(binary_address, dest_binary_addr, binary_size_bytes);
                         noc_async_write(launch_msg_addr, dest_launch_and_go_addr, launch_and_go_msg_size_bytes);
                         remaining_cores &= ~(0x1 << i);
@@ -194,15 +188,8 @@ void kernel_main() {
                 // continue writing go msg now (can't send just 4 bytes with this api)
                 internal_::eth_send_packet<false>(0, go_msg_addr >> 4, go_msg_addr >> 4, 16 >> 4);
 
-                // if we just write it once then we will technically continue writing until we change state..?
                 send_handshake_signal<remote_handshake_stream_id>(0);
-                // volatile tt_l1_ptr uint32_t* handshake_addr_ptr = reinterpret_cast<volatile tt_l1_ptr
-                // uint32_t*>(neighbour_handshake_addr); if (handshake_addr_ptr[0] == 0x39) {
-                //     // this means that the remote eth core has sent us a handshake signal
-                //     // we can now set our state to 5
-                //     state = 5;
-                // }
-
+ 
                 if (get_state<remote_handshake_stream_id>() == 1) {
                     state = 4;
                 }

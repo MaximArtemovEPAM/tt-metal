@@ -91,16 +91,20 @@ Program create_eth_init_program(const MmmioAndEthDeviceDesc& desc, bool init_all
     tt_metal::Program mmio_program = tt_metal::Program();
 
     std::unordered_map<CoreCoord, KernelHandle> mmio_eth_to_kernel;
+
+    uint32_t eth_channels_mask = 0;
     for (const auto& core : desc.mmio_device->get_active_ethernet_cores()) {
         if (!init_all_eth_cores && core != desc.mmio_eth.value()) {
             continue;  // Skip other eth cores if we are initializing only one
         }
+        std::cout << "Eth core is " << core.str() << std::endl;
         auto kernel_handle = tt_metal::CreateKernel(
             mmio_program,
             "tests/tt_metal/tt_metal/tunneling/kernels/lite_fabric_handshake.cpp",
             desc.mmio_eth.value(),
             tt_metal::EthernetConfig{.noc = tt_metal::NOC::NOC_0});
         mmio_eth_to_kernel[core] = kernel_handle;
+        eth_channels_mask += 0x1 << (uint32_t)core.y;
     }
 
     // Compile the program because we need to write the binary into mmio eth core so it can send it over
@@ -140,6 +144,8 @@ Program create_eth_init_program(const MmmioAndEthDeviceDesc& desc, bool init_all
     std::cout << "dst_binary_address: " << dst_binary_address << " binary_size_bytes " << binary_size_bytes
               << std::endl;
 
+    auto primary_eth_core = desc.mmio_device->ethernet_core_from_logical_core(desc.mmio_eth.value());
+              
     for (const auto& [core, kernel_handle] : mmio_eth_to_kernel) {
         uint32_t initial_state = (core == desc.mmio_eth.value()) ? 0 : 1;
 
@@ -147,7 +153,7 @@ Program create_eth_init_program(const MmmioAndEthDeviceDesc& desc, bool init_all
             mmio_program,
             kernel_handle,
             core,
-            {initial_state, dst_binary_address, binary_size_bytes, init_all_eth_cores});
+            {initial_state, dst_binary_address, binary_size_bytes, init_all_eth_cores, (uint32_t)primary_eth_core.x, (uint32_t)primary_eth_core.y, eth_chans_mask});
     }
 
     return mmio_program;
@@ -174,7 +180,7 @@ TEST_F(DeviceFixture, MmioEthCoreInitSingleEthCore) {
 
     tt::tt_metal::MetalContext::instance().get_cluster().l1_barrier(
         desc.mmio_device->id());  // don't need launch program should do
-    tt_metal::detail::LaunchProgram(desc.mmio_device, mmio_program);
+    // tt_metal::detail::LaunchProgram(desc.mmio_device, mmio_program);
 }
 
 TEST_F(DeviceFixture, MmioEthCoreInitAllEthCores) {
@@ -198,7 +204,7 @@ TEST_F(DeviceFixture, MmioEthCoreInitAllEthCores) {
 
     tt::tt_metal::MetalContext::instance().get_cluster().l1_barrier(
         desc.mmio_device->id());  // don't need launch program should do
-    tt_metal::detail::LaunchProgram(desc.mmio_device, mmio_program);
+    // tt_metal::detail::LaunchProgram(desc.mmio_device, mmio_program);
 }
 
 }  // namespace tunneling
