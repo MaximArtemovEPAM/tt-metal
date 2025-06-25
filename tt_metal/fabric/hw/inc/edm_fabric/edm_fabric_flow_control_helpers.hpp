@@ -164,6 +164,11 @@ struct ChannelCounter {
         this->index = BufferIndex(0);
     }
 
+    FORCE_INLINE void set(const ChannelCounter& other) {
+        this->counter = other.counter;
+        this->index = other.index;
+    }
+
     FORCE_INLINE BufferIndex get_buffer_index() const { return index; }
 
     FORCE_INLINE void increment() {

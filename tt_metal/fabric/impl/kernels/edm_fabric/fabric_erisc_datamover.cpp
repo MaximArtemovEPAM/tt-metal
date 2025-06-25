@@ -283,16 +283,40 @@ struct OutboundReceiverChannelPointers {
     FORCE_INLINE bool has_space_for_packet() const { return num_free_slots; }
 };
 
+struct VirtualQueueBuffer {
+    bool has_entry;
+    uint8_t buffer_index;
+    uint8_t channel_id;
+};
+
+struct VirtualQueue {
+    static constexpr uint8_t routing_directions = 6;
+    VirtualQueueBuffer buffer[routing_directions];
+    uint8_t process_virtual_queue;
+
+    void reset() {
+        for (uint8_t i = 0; i < routing_directions; i++) {
+            buffer[i].has_entry = false;
+            buffer[i].buffer_index = 0;
+            buffer[i].channel_id = 0;
+        }
+        process_virtual_queue = 0;
+    }
+};
+
 /*
  * Tracks receiver channel pointers (from receiver side). Must call reset() before using.
  */
 template <uint8_t RECEIVER_NUM_BUFFERS>
 struct ReceiverChannelPointers {
     ChannelCounter<RECEIVER_NUM_BUFFERS> wr_sent_counter;
+    ChannelCounter<RECEIVER_NUM_BUFFERS> wr_sent_counter_copy;
     ChannelCounter<RECEIVER_NUM_BUFFERS> wr_flush_counter;
     ChannelCounter<RECEIVER_NUM_BUFFERS> ack_counter;
     ChannelCounter<RECEIVER_NUM_BUFFERS> completion_counter;
     std::array<uint8_t, RECEIVER_NUM_BUFFERS> src_chan_ids;
+
+    VirtualQueue virtual_queue;
 
     FORCE_INLINE void set_src_chan_id(BufferIndex buffer_index, uint8_t src_chan_id) {
         src_chan_ids[buffer_index.get()] = src_chan_id;
@@ -982,6 +1006,7 @@ void run_receiver_channel_step_impl(
     ReceiverChannelPointers<RECEIVER_NUM_BUFFERS>& receiver_channel_pointers,
     WriteTridTracker& receiver_channel_trid_tracker,
     std::array<uint8_t, num_eth_ports>& port_direction_table) {
+    static uint32_t iteration = 0;
     auto pkts_received_since_last_check = get_ptr_val<to_receiver_pkts_sent_id>();
     auto& wr_sent_counter = receiver_channel_pointers.wr_sent_counter;
     bool unwritten_packets;
@@ -1015,6 +1040,70 @@ void run_receiver_channel_step_impl(
         uint32_t hop_cmd;
         bool can_send_to_all_local_chip_receivers;
         if constexpr (is_2d_fabric) {
+            if constexpr (ENABLE_FABRIC_2D_VIRTUAL_QUEUE) {
+                iteration == CHECK_VIRTUAL_QUEUE_ITERATION_THRESHOLD ? 0 : iteration + 1;
+                auto& virtual_queue = receiver_channel_pointers.virtual_queue;
+                auto& wr_sent_counter_copy = receiver_channel_pointers.wr_sent_counter_copy;
+                // if virutal queue has items and we hit the threshold for processing the virtual queue.
+                if (virtual_queue.process_virtual_queue && iteration == CHECK_VIRTUAL_QUEUE_ITERATION_THRESHOLD - 1) {
+                    // iterate through each routing directions.
+                    for (const auto& buffer : virtual_queue.buffer) {
+                        if (buffer.has_entry) {
+                            const auto buffer_index = buffer.buffer_index;
+                            const auto ch_id = buffer.channel_id;
+
+                            tt_l1_ptr PACKET_HEADER_TYPE* packet_header = const_cast<PACKET_HEADER_TYPE*>(
+                                local_receiver_channel.template get_packet_header<PACKET_HEADER_TYPE>(buffer_index));
+
+                            ROUTING_FIELDS_TYPE cached_routing_fields;
+#if !defined(FABRIC_2D) || !defined(DYNAMIC_ROUTING_ENABLED)
+                            cached_routing_fields = packet_header->routing_fields;
+#endif
+
+#if defined(DYNAMIC_ROUTING_ENABLED)
+                            // need this ifdef since the 2D dynamic routing packet header contains unique fields
+                            can_send_to_all_local_chip_receivers = can_forward_packet_completely(
+                                packet_header, downstream_edm_interface, port_direction_table);
+#else
+                            // need this ifdef since the packet header for 1D does not have router_buffer field in it.
+                            hop_cmd = packet_header->route_buffer[cached_routing_fields.value];
+                            can_send_to_all_local_chip_receivers =
+                                can_forward_packet_completely(hop_cmd, downstream_edm_interface);
+#endif
+                            if (can_send_to_all_local_chip_receivers) {
+                                virtual_queue.process_virtual_queue -= 1;
+                                did_something = true;
+                                uint8_t trid =
+                                    receiver_channel_trid_tracker
+                                        .update_buffer_slot_to_next_trid_and_advance_trid_counter(buffer_index);
+#if defined(DYNAMIC_ROUTING_ENABLED)
+                                receiver_forward_packet<receiver_channel>(
+                                    packet_header,
+                                    cached_routing_fields,
+                                    downstream_edm_interface,
+                                    trid,
+                                    port_direction_table);
+#else
+                                receiver_forward_packet<receiver_channel>(
+                                    packet_header, cached_routing_fields, downstream_edm_interface, trid, hop_cmd);
+#endif
+                                wr_sent_counter_copy.increment();
+                                // decrement the to_receiver_pkts_sent_id stream register by 1 since current packet has
+                                // been processed.
+                                increment_local_update_ptr_val<to_receiver_pkts_sent_id>(-1);
+                            }
+                        }
+                    }
+
+                    if (!virtual_queue.process_virtual_queue) {
+                        // reset the virtual queue
+                        virtual_queue.reset();
+                        // update the actual sent counter to latest value
+                        wr_sent_counter.set(wr_sent_counter_copy);
+                    }
+                } else if (!vq[forward_dir].has_entry) {
+                }
+            }
             // read in the hop command from route buffer.
             // Hop command is 4 bits. Each of the 4 bits signal one of the 4 possible outcomes for a packet.
             // [0]->Forward East
