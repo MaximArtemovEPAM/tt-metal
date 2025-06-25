@@ -147,6 +147,12 @@ void MAIN {
         mm_init(cb_q_in, cb_k_in, cb_qk_im);
     }
     cb_wait_front(cb_q_in, q_chunk_tiles);
+    auto sr = SliceRange{.h0 = 0, .h1 = 8, .hs = 4, .w0 = 0, .w1 = 32, .ws = 4};
+    UNPACK((DPRINT << "After tilize" << ENDL()));
+    UNPACK((DPRINT << TileSlice(cb_q_in, 0, sr, true, true) << ENDL()));
+    UNPACK((DPRINT << TileSlice(cb_q_in, 1, sr, true, true) << ENDL()));
+    UNPACK((DPRINT << TileSlice(cb_q_in, 2, sr, true, true) << ENDL()));
+    UNPACK((DPRINT << TileSlice(cb_q_in, 3, sr, true, true) << ENDL()));
 
 #ifdef DYNAMIC_CHUNK_SIZE
     const uint32_t qk_subblock_h_dynamic = 1;
@@ -251,6 +257,12 @@ void MAIN {
                     qk_subblock_h_dynamic,
                     qk_subblock_w_dynamic,
                     true /*transpose*/);
+                cb_wait_front(cb_qk_im, qk_chunk_tiles_dynamic);
+                UNPACK((DPRINT << "After mm" << ENDL()));
+                UNPACK((DPRINT << TileSlice(cb_qk_im, 0, sr, true, true) << ENDL()));
+                UNPACK((DPRINT << TileSlice(cb_qk_im, 1, sr, true, true) << ENDL()));
+                UNPACK((DPRINT << TileSlice(cb_qk_im, 2, sr, true, true) << ENDL()));
+                UNPACK((DPRINT << TileSlice(cb_qk_im, 3, sr, true, true) << ENDL()));
 
                 /* QK *= SCALE */
                 mul_block_bcast_scalar_inplace(cb_qk_im, cb_scale_in, qk_chunk_tiles_dynamic);
