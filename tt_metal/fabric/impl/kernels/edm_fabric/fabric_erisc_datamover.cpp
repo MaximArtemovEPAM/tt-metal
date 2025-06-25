@@ -1790,6 +1790,7 @@ void kernel_main() {
         tt::tt_fabric::EdmChannelWorkerInterfaces<SENDER_NUM_BUFFERS_ARRAY>::make(
             std::make_index_sequence<NUM_SENDER_CHANNELS>{});
 
+    DPRINT << "HERE 5\n";
     // TODO: change to TMP.
     std::array<tt::tt_fabric::EdmToEdmSender<DOWNSTREAM_SENDER_NUM_BUFFERS>, NUM_USED_RECEIVER_CHANNELS>
         downstream_edm_noc_interfaces;
@@ -1873,6 +1874,7 @@ void kernel_main() {
         }
     }
 
+    DPRINT << "HERE 6\n";
     static_assert(!enable_ring_support || !is_2d_fabric, "2D mode does not yet support ring/torus");
     if constexpr (enable_ring_support) {
         if (has_downstream_edm_vc1_buffer_connection) {
@@ -1929,6 +1931,7 @@ void kernel_main() {
                     tt::tt_fabric::forward_and_local_write_noc_vc>();
         }
     }
+    DPRINT << "HERE 7\n";
 
     // initialize the local receiver channel buffers
     local_receiver_channels.init(
@@ -1948,12 +1951,16 @@ void kernel_main() {
     local_sender_channels.init(
         local_sender_buffer_addresses.data(), channel_buffer_size, sizeof(PACKET_HEADER_TYPE), sender_channel_base_id);
 
+    DPRINT << "HERE 8\n";
     // initialize the local sender channel worker interfaces
-    init_local_sender_channel_worker_interfaces(
-        local_sender_connection_live_semaphore_addresses,
-        local_sender_connection_info_addresses,
-        local_sender_channel_worker_interfaces,
-        local_sender_flow_control_semaphores);
+    if constexpr (is_sender_channel_serviced[0]) {
+        init_local_sender_channel_worker_interfaces(
+            local_sender_connection_live_semaphore_addresses,
+            local_sender_connection_info_addresses,
+            local_sender_channel_worker_interfaces,
+            local_sender_flow_control_semaphores);
+    }
+    DPRINT << "HERE 8.5\n";
 
     WriteTransactionIdTracker<RECEIVER_NUM_BUFFERS_ARRAY[0], NUM_TRANSACTION_IDS, 0> receiver_channel_0_trid_tracker;
     WriteTransactionIdTracker<
@@ -1963,15 +1970,18 @@ void kernel_main() {
         receiver_channel_1_trid_tracker;
 
     if constexpr (!is_2d_fabric) {
-        const size_t start = !has_downstream_edm_vc0_buffer_connection;
-        const size_t end = has_downstream_edm_vc1_buffer_connection + 1;
-        for (size_t i = start; i < end; i++) {
-            downstream_edm_noc_interfaces[i].template open<true, tt::tt_fabric::worker_handshake_noc>();
-            ASSERT(
-                get_ptr_val(downstream_edm_noc_interfaces[i].worker_credits_stream_id) ==
-                DOWNSTREAM_SENDER_NUM_BUFFERS);
+        if constexpr (is_receiver_channel_serviced[0]) {
+            const size_t start = !has_downstream_edm_vc0_buffer_connection;
+            const size_t end = has_downstream_edm_vc1_buffer_connection + 1;
+            for (size_t i = start; i < end; i++) {
+                downstream_edm_noc_interfaces[i].template open<true, tt::tt_fabric::worker_handshake_noc>();
+                ASSERT(
+                    get_ptr_val(downstream_edm_noc_interfaces[i].worker_credits_stream_id) ==
+                    DOWNSTREAM_SENDER_NUM_BUFFERS);
+            }
         }
     }
+    DPRINT << "HERE 9\n";
 
     if constexpr (enable_ethernet_handshake) {
         DPRINT << "enable_ethernet_handshake\n";
@@ -2025,15 +2035,18 @@ void kernel_main() {
             }
         }
     }
+    DPRINT << "HERE 10\n";
 
     if constexpr (is_2d_fabric) {
         uint32_t has_downstream_edm = has_downstream_edm_vc0_buffer_connection & 0xF;
         uint32_t edm_index = 0;
         while (has_downstream_edm) {
-            if (has_downstream_edm & 0x1) {
-                // open connections with available downstream edms
-                downstream_edm_noc_interfaces[edm_index].template open<true, tt::tt_fabric::worker_handshake_noc>();
-                *downstream_edm_noc_interfaces[edm_index].from_remote_buffer_free_slots_ptr = 0;
+            if constexpr (is_receiver_channel_serviced[0]) {
+                if (has_downstream_edm & 0x1) {
+                    // open connections with available downstream edms
+                    downstream_edm_noc_interfaces[edm_index].template open<true, tt::tt_fabric::worker_handshake_noc>();
+                    *downstream_edm_noc_interfaces[edm_index].from_remote_buffer_free_slots_ptr = 0;
+                }
             }
             edm_index++;
             has_downstream_edm >>= 1;
@@ -2050,9 +2063,12 @@ void kernel_main() {
                 connect_ring = (has_downstream_edm_vc0_buffer_connection & (0x1 << eth_chan_directions::NORTH)) != 0;
             }
             if (connect_ring) {
-                downstream_edm_noc_interfaces[NUM_USED_RECEIVER_CHANNELS - 1]
-                    .template open<true, tt::tt_fabric::worker_handshake_noc>();
-                *downstream_edm_noc_interfaces[NUM_USED_RECEIVER_CHANNELS - 1].from_remote_buffer_free_slots_ptr = 0;
+                if constexpr (is_receiver_channel_serviced[NUM_USED_RECEIVER_CHANNELS - 1]) {
+                    downstream_edm_noc_interfaces[NUM_USED_RECEIVER_CHANNELS - 1]
+                        .template open<true, tt::tt_fabric::worker_handshake_noc>();
+                    *downstream_edm_noc_interfaces[NUM_USED_RECEIVER_CHANNELS - 1].from_remote_buffer_free_slots_ptr =
+                        0;
+                }
             }
         }
     }
