@@ -264,6 +264,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
         logger.info(
             f"Running inference for prompts {iter * batch_size + 1}-{iter * batch_size + batch_size}/{len(prompts)}"
         )
+        profiler.start("image_gen")
         imgs = run_tt_image_gen(
             ttnn_device,
             tt_unet,
@@ -281,10 +282,13 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
             batch_size,
             iter,
         )
-
-        logger.info(f"Denoising loop for {batch_size} promts completed in {profiler.get('denoising_loop'):.2f} seconds")
+        profiler.stop("image_gen")
+        # logger.info(f"Denoising loop for {batch_size} promts completed in {profiler.get('denoising_loop'):.2f} seconds")
+        # logger.info(
+        #     f"{'On device VAE' if vae_on_device else 'Host VAE'} decoding completed in {profiler.get('vae_decode'):.2f} seconds"
+        # )
         logger.info(
-            f"{'On device VAE' if vae_on_device else 'Host VAE'} decoding completed in {profiler.get('vae_decode'):.2f} seconds"
+            f"Image generation for {batch_size} prompts on {ttnn_device.get_num_devices()} devices completed in {profiler.get('image_gen'):.2f} seconds"
         )
         profiler.clear()
 
@@ -329,6 +333,11 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
         (False),
     ],
     ids=("device_vae", "host_vae"),
+)
+@pytest.mark.parametrize(
+    "mesh_device",
+    [1, 1, 2, 4, 8, 16, 24, 32],
+    indirect=True,
 )
 def test_demo(
     mesh_device,
