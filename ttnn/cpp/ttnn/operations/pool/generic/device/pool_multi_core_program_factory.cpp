@@ -287,7 +287,7 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
     const uint32_t in_ntiles_hw = (uint32_t)std::ceil((float)kernel_size_hw_padded / tt::constants::TILE_HEIGHT);
     const uint32_t in_ntiles_c = (uint32_t)std::ceil((float)input_shape[3] / num_shards_c / tt::constants::TILE_WIDTH);
     const uint32_t out_ntiles_c = (uint32_t)std::ceil((float)input_shape[3] / num_shards_c / tt::constants::TILE_WIDTH);
-    const bool last_tile_is_partial = (input_shape[3] / num_shards_c) % 32 != 0;
+    const bool last_tile_is_partial = (in_c / num_shards_c) % 32 != 0 && (in_c / num_shards_c) % 32 < 17;
 
     constexpr uint32_t MAX_TILES_PER_REDUCTION = 8;
     const bool is_wide_reduction = in_ntiles_c > MAX_TILES_PER_REDUCTION;
