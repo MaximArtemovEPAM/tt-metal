@@ -349,7 +349,7 @@ TEST_F(CommandQueueTraceFixture, TensixEnqueueProgramTraceCapture) {
 }
 
 TEST_F(CommandQueueTraceFixture, TensixEnqueueProgramDeviceCapture) {
-    CreateDevice(2048);
+    CreateDevice(131072);
     auto input = Buffer::create(this->device_, 2048, 2048, BufferType::DRAM);
     auto output = Buffer::create(this->device_, 2048, 2048, BufferType::DRAM);
 
@@ -384,7 +384,8 @@ TEST_F(CommandQueueTraceFixture, TensixEnqueueProgramDeviceCapture) {
         if (!has_trace) {
             // Program must be cached first
             tid = BeginTraceCapture(this->device_, command_queue.id());
-            EnqueueProgram(command_queue, *simple_program, false);
+            for (int i = 0; i < 10; ++i)
+                EnqueueProgram(command_queue, *simple_program, false);
             EndTraceCapture(this->device_, command_queue.id(), tid);
             has_trace = true;
         }

@@ -960,10 +960,11 @@ static void process_wait() {
     if (wait_stream) {
         volatile uint32_t* sem_addr = reinterpret_cast<volatile uint32_t*>(
             STREAM_REG_ADDR(stream, STREAM_REMOTE_DEST_BUF_SPACE_AVAILABLE_REG_INDEX));
-        // DPRINT << " DISPATCH WAIT STREAM " << HEX() << stream << DEC() << " count " << count << ENDL();
         do {
+            DPRINT << " DISPATCH WAIT STREAM " << HEX() << stream << DEC() << " count " << count << " " << *sem_addr << ENDL();
             IDLE_ERISC_HEARTBEAT_AND_RETURN(heartbeat);
         } while (!stream_wrap_ge(*sem_addr, count));
+        DPRINT << " DISPATCH WAIT STREAM DONE" << HEX() << stream << DEC() << " count " << count << " " << *sem_addr << ENDL();
     }
     WAYPOINT("PWD");
 
@@ -1002,6 +1003,7 @@ void process_go_signal_mcast_cmd() {
     // Copy the go signal from an unaligned location to an aligned (cmd_ptr) location. This is safe as long as we
     // can guarantee that copying the go signal does not corrupt any other command fields, which is true (see
     // CQDispatchGoSignalMcastCmd).
+    DPRINT << "Go signal" << ENDL();
     volatile uint32_t tt_l1_ptr* aligned_go_signal_storage = (volatile uint32_t tt_l1_ptr*)cmd_ptr;
     *aligned_go_signal_storage = cmd->mcast.go_signal;
     uint8_t go_signal_noc_data_idx = cmd->mcast.noc_data_start_index;
@@ -1195,7 +1197,7 @@ re_run_command:
             break;
 
         case CQ_DISPATCH_CMD_EXEC_BUF_END:
-            // DPRINT << "cmd_exec_buf_end\n";
+            DPRINT << "cmd_exec_buf_end\n";
             if (is_h_variant) {
                 process_exec_buf_end_h();
             } else {

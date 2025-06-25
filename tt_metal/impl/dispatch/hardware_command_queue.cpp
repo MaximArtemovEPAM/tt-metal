@@ -461,15 +461,19 @@ void HWCommandQueue::enqueue_program(Program& program, bool blocking) {
             calculate_expected_workers_to_finish(device_, sub_device_id, HalProgrammableCoreType::ACTIVE_ETH);
     }
 
-    // Expected number of workers from the previous run. Used to generate the wait command in the EnqueueProgramCommand
     const auto updated_worker_counts = program_dispatch::get_expected_num_workers_completed_updates(
-        device_,
-        sub_device_id,
-        get_config_buffer_mgr(sub_device_index),
-        expected_num_workers_completed_[sub_device_index],
-        num_additional_workers,
-        id_);
-    uint32_t expected_workers_completed = updated_worker_counts.previous;
+        expected_num_workers_completed_[sub_device_index], num_additional_workers);
+
+    // Expected number of workers from the previous run. Used to generate the wait command in the EnqueueProgramCommand
+    auto expected_workers_completed = updated_worker_counts.previous;
+
+    // Previous is updated again as it may have wrapped
+    if (updated_worker_counts.wrapped) {
+        program_dispatch::reset_expected_num_workers_completed_on_device(
+            device_, sub_device_id, expected_workers_completed, id());
+        get_config_buffer_mgr(sub_device_index).mark_completely_full(0);
+    }
+
     expected_num_workers_completed_[sub_device_index] = updated_worker_counts.current;
 
 #ifdef DEBUG
@@ -750,6 +754,11 @@ const CoreCoord& HWCommandQueue::virtual_enqueue_program_dispatch_core() const {
 void HWCommandQueue::record_begin(const uint32_t tid, const std::shared_ptr<TraceDescriptor>& ctx) {
     // Clear host dispatch state, since when trace runs we will reset the launch_msg_ring_buffer,
     // worker_config_buffer, etc.
+    for (int i = 0; i < device_->num_sub_devices(); ++i) {
+        program_dispatch::reset_expected_num_workers_completed_on_device(
+            device_, tt::tt_metal::SubDeviceId{i}, this->expected_num_workers_completed_[i], id());
+        this->expected_num_workers_completed_[i] = 0;
+    }
     trace_dispatch::reset_host_dispatch_state_for_trace(
         device_->num_sub_devices(),
         this->cq_shared_state_->worker_launch_message_buffer_state,
@@ -771,6 +780,7 @@ void HWCommandQueue::record_begin(const uint32_t tid, const std::shared_ptr<Trac
 void HWCommandQueue::allocate_trace_programs() {
     const auto& hal = MetalContext::instance().hal();
     uint32_t expected_workers_completed = 0;
+    uint32_t iter = 0;
     for (auto& node : this->trace_nodes_) {
         auto& program = *node.program;
         auto sub_device_id = node.sub_device_id;
@@ -799,6 +809,7 @@ void HWCommandQueue::allocate_trace_programs() {
         node.dispatch_metadata.sync_count = dispatch_metadata.sync_count;
         node.dispatch_metadata.stall_first = dispatch_metadata.stall_first;
         node.dispatch_metadata.stall_before_program = dispatch_metadata.stall_before_program;
+        log_info(tt::LogMetal, "Allocate trace {} needs stall = {}", ++iter, dispatch_metadata.stall_first);
 
         // Allocate non-binaries before binaries for tensix. Non-tensix doesn't use a ringbuffer for binaries, so its
         // addresses don't need adjustment.
@@ -810,24 +821,36 @@ void HWCommandQueue::allocate_trace_programs() {
 
 void HWCommandQueue::record_end() {
     allocate_trace_programs();
+    int iter = 0;
     for (auto& node : this->trace_nodes_) {
+        iter++;
         auto sub_device_id = node.sub_device_id;
         auto& program = *node.program;
 
-        // Snapshot of expected workers from previous programs, used for dispatch_wait cmd generation.
-        uint32_t expected_workers_completed = this->trace_ctx_->descriptors[sub_device_id].num_completion_worker_cores;
         // Compute the total number of workers this program uses
         uint32_t num_workers = 0;
         if (program.runs_on_noc_multicast_only_cores()) {
             this->trace_ctx_->descriptors[sub_device_id].num_traced_programs_needing_go_signal_multicast++;
             num_workers += calculate_expected_workers_to_finish(device_, sub_device_id, HalProgrammableCoreType::TENSIX);
-
         }
         if (program.runs_on_noc_unicast_only_cores()) {
             this->trace_ctx_->descriptors[sub_device_id].num_traced_programs_needing_go_signal_unicast++;
             num_workers += calculate_expected_workers_to_finish(device_, sub_device_id, HalProgrammableCoreType::ACTIVE_ETH);
         }
-        this->trace_ctx_->descriptors[sub_device_id].num_completion_worker_cores += num_workers;
+
+        // Snapshot of expected workers from previous programs, used for dispatch_wait cmd generation.
+        auto expected_workers_completed = this->trace_ctx_->descriptors[sub_device_id].num_completion_worker_cores;
+        const auto updated_worker_counts = program_dispatch::get_expected_num_workers_completed_updates(
+            expected_workers_completed, num_workers);
+        if (updated_worker_counts.wrapped) {
+            log_info(tt::LogMetal, "Trace got wrapped {} {} to {} Enqueue Wait for {}", node.program_runtime_id, iter, updated_worker_counts.current, expected_workers_completed);
+            program_dispatch::reset_expected_num_workers_completed_on_device(
+                device_, sub_device_id, expected_workers_completed, id());
+            get_config_buffer_mgr(*sub_device_id).mark_completely_full(0);
+        }
+
+        this->trace_ctx_->descriptors[sub_device_id].num_completion_worker_cores = updated_worker_counts.current;
+        expected_workers_completed = updated_worker_counts.previous;
 
         RecordProgramRun(program.get_id());
 
@@ -913,6 +936,7 @@ void HWCommandQueue::record_end() {
     // Reset the expected workers, launch msg buffer state, and config buffer mgr to their original value,
     // so device can run programs after a trace was captured. This is needed since trace capture modifies the state on
     // host, even though device doesn't run any programs.
+    log_info(tt::LogMetal, "Restore local host dispatch state {}", this->expected_num_workers_completed_reset_[0]);
     trace_dispatch::load_host_dispatch_state(
         device_->num_sub_devices(),
         this->cq_shared_state_->worker_launch_message_buffer_state,

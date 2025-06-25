@@ -106,9 +106,9 @@ TEST_F(MeshTraceTestSuite, Sanity) {
     log_info(tt::LogTest, "Using Test Seed: {}", seed);
     srand(seed);
 
-    uint32_t num_workloads_per_trace = 5;
+    uint32_t num_workloads_per_trace = 150;
     uint32_t num_traces = 4;
-    uint32_t num_iters = 10;
+    uint32_t num_iters = 500;
     uint32_t num_trace_setup_teardown_loops = 10;
 
     MeshCoordinateRange all_devices(mesh_device_->shape());
@@ -131,21 +131,27 @@ TEST_F(MeshTraceTestSuite, Sanity) {
                     mesh_device_->mesh_command_queue(),
                     *mesh_workloads[trace_idx * num_workloads_per_trace + workload_idx],
                     false);
+                log_info(tt::LogTest, "Iter {} Trace {} Enqueue Mesh Workload {}", outer_loop + 1, workload_idx + 1, trace_idx + 1);
             }
             EndTraceCapture(mesh_device_.get(), 0, trace_id);
             trace_ids.push_back(trace_id);
         }
 
+        log_info(tt::LogTest, "Replay Trace");
         for (int i = 0; i < num_iters; i++) {
             for (auto trace_id : trace_ids) {
                 ReplayTrace(mesh_device_.get(), 0, trace_id, false);
             }
         }
+        log_info(tt::LogTest, "Wait for Finish");
         Finish(mesh_device_->mesh_command_queue());
+        log_info(tt::LogTest, "Replay Complete");
 
         for (auto trace_id : trace_ids) {
             ReleaseTrace(mesh_device_.get(), trace_id);
         }
+
+        log_info(tt::LogTest, "Trace Released");
     }
 }
 

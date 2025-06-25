@@ -2566,61 +2566,25 @@ void reset_expected_num_workers_completed_on_device(
     }
     populate_dispatch_wait_cmd(0);
 
+    manager.cq_write(cmd_region, cmd_sequence_sizeB, manager.get_issue_queue_write_ptr(cq_id));
     manager.issue_queue_push_back(cmd_sequence_sizeB, cq_id);
     manager.fetch_queue_reserve_back(cq_id);
     manager.fetch_queue_write(cmd_sequence_sizeB, cq_id);
 }
 
-ExpectedNumWorkerUpdates get_expected_num_workers_completed_updates(
-    tt::tt_metal::distributed::MeshDevice* mesh_device,
-    tt::tt_metal::SubDeviceId sub_device_id,
-    WorkerConfigBufferMgr& config_buffer_mgr,
-    uint32_t num_workers,
-    uint32_t num_additional_workers,
-    uint8_t cq_id) {
-    auto sub_device_index = *sub_device_id;
+ExpectedNumWorkerUpdates get_expected_num_workers_completed_updates(uint32_t num_workers, uint32_t num_additional_workers) {
     uint32_t previous_expected_num_workers_completed = num_workers;
+    bool wrapped = false;
 
-    if (previous_expected_num_workers_completed > std::numeric_limits<uint32_t>::max() - num_additional_workers)
-        [[unlikely]] {
-        for (auto device : mesh_device->get_devices()) {
-            reset_expected_num_workers_completed_on_device(
-                device, sub_device_id, previous_expected_num_workers_completed, cq_id);
-        }
-
+    // if (previous_expected_num_workers_completed > std::numeric_limits<uint32_t>::max() - num_additional_workers) [[unlikely]] {
         num_workers = 0;
         previous_expected_num_workers_completed = 0;
-        config_buffer_mgr.mark_completely_full(0);
-    }
+        wrapped = true;
+    // }
 
     num_workers += num_additional_workers;
 
-    return ExpectedNumWorkerUpdates{.previous = previous_expected_num_workers_completed, .current = num_workers};
-}
-
-ExpectedNumWorkerUpdates get_expected_num_workers_completed_updates(
-    tt::tt_metal::IDevice* device,
-    tt::tt_metal::SubDeviceId sub_device_id,
-    WorkerConfigBufferMgr& config_buffer_mgr,
-    uint32_t num_workers,
-    uint32_t num_additional_workers,
-    uint8_t cq_id) {
-    auto sub_device_index = *sub_device_id;
-    uint32_t previous_expected_num_workers_completed = num_workers;
-
-    if (previous_expected_num_workers_completed > std::numeric_limits<uint32_t>::max() - num_additional_workers)
-        [[unlikely]] {
-        reset_expected_num_workers_completed_on_device(
-            device, sub_device_id, previous_expected_num_workers_completed, cq_id);
-
-        num_additional_workers = 0;
-        previous_expected_num_workers_completed = 0;
-        config_buffer_mgr.mark_completely_full(0);
-    }
-
-    num_workers += num_additional_workers;
-
-    return ExpectedNumWorkerUpdates{.previous = previous_expected_num_workers_completed, .current = num_workers};
+    return ExpectedNumWorkerUpdates{.previous = previous_expected_num_workers_completed, .current = num_workers, .wrapped = wrapped};
 }
 
 template uint32_t program_base_addr_on_core<ProgramImpl, IDevice*>(ProgramImpl&, IDevice*, HalProgrammableCoreType);
