@@ -282,7 +282,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
             batch_size,
             iter,
         )
-        profiler.stop("image_gen")
+        profiler.end("image_gen")
         # logger.info(f"Denoising loop for {batch_size} promts completed in {profiler.get('denoising_loop'):.2f} seconds")
         # logger.info(
         #     f"{'On device VAE' if vae_on_device else 'Host VAE'} decoding completed in {profiler.get('vae_decode'):.2f} seconds"
@@ -336,7 +336,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
 )
 @pytest.mark.parametrize(
     "mesh_device",
-    [32, 16, 8, 4, 2, 1],
+    [1, 32, 16, 8, 4, 2, 1],
     indirect=True,
 )
 def test_demo(
