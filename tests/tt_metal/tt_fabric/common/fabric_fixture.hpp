@@ -169,12 +169,5 @@ void RunTestChipMCast1D(
 void RunTestLineMcast(
     BaseFabricFixture* fixture, RoutingDirection unicast_dir, const std::vector<McastRoutingInfo>& mcast_routing_info);
 
-void RunMultiMeshLineMcast(
-    BaseFabricFixture* fixture,
-    FabricNodeId mcast_request_node,
-    FabricNodeId mcast_start_node,
-    const std::vector<McastRoutingInfo>& mcast_routing_info,
-    const std::vector<FabricNodeId>& mcast_group_node_ids);
-
 }  // namespace fabric_router_tests
 }  // namespace tt::tt_fabric

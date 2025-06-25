@@ -11,6 +11,7 @@
 #include <tt-metalium/fabric_host_interface.h>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <map>
 #include <optional>
 #include <utility>
@@ -206,7 +207,7 @@ void RandomizedInterMeshUnicast(BaseFabricFixture* fixture) {
         auto sender_program = tt_metal::CreateProgram();
         auto sender_kernel = tt_metal::CreateKernel(
             sender_program,
-            "tests/tt_metal/tt_metal/perf_microbenchmark/routing/kernels/tt_fabric_1d_tx.cpp",
+            "tests/tt_metal/multihost/fabric_tests/kernels/tt_fabric_2d_unicast_tx.cpp",
             {sender_logical_core},
             tt_metal::DataMovementConfig{
                 .processor = tt_metal::DataMovementProcessor::RISCV_0,
@@ -643,14 +644,14 @@ void InterMeshLineMcast(
     }
 }
 
+namespace utils {
+
 std::map<FabricNodeId, chip_id_t> get_physical_chip_mapping_from_eth_coords_mapping(
-    const std::vector<std::vector<eth_coord_t>>& mesh_graph_eth_coords) {
+    const std::vector<std::vector<eth_coord_t>>& mesh_graph_eth_coords, uint32_t local_mesh_id) {
     const auto& cluster = tt::tt_metal::MetalContext::instance().get_cluster();
     std::map<FabricNodeId, chip_id_t> physical_chip_ids_mapping;
-    auto& control_plane = tt::tt_metal::MetalContext::instance().get_control_plane();
-    auto local_mesh_id = control_plane.get_local_mesh_id_binding();
     for (std::uint32_t mesh_id = 0; mesh_id < mesh_graph_eth_coords.size(); mesh_id++) {
-        if (mesh_id == *(local_mesh_id.value())) {
+        if (mesh_id == local_mesh_id) {
             for (std::uint32_t chip_id = 0; chip_id < mesh_graph_eth_coords[mesh_id].size(); chip_id++) {
                 const auto& eth_coord = mesh_graph_eth_coords[mesh_id][chip_id];
                 physical_chip_ids_mapping.insert(
@@ -661,27 +662,73 @@ std::map<FabricNodeId, chip_id_t> get_physical_chip_mapping_from_eth_coords_mapp
     return physical_chip_ids_mapping;
 }
 
+class LocalBindingManager {
+public:
+    void validate_local_mesh_id_and_host_rank() {
+        const char* mesh_id_str = std::getenv("TT_MESH_ID");
+        const char* host_rank_str = std::getenv("TT_HOST_RANK");
+        TT_FATAL(mesh_id_str and host_rank_str,
+                "TT_MESH_ID and TT_HOST_RANK environment variables must be set for Multi-Host Fabric Tests.");
+
+        local_mesh_id_ = std::string(mesh_id_str);
+        local_host_rank_ = std::string(host_rank_str);
+    }
+
+    void clear_bindings() {
+        unsetenv("TT_MESH_ID");
+        unsetenv("TT_HOST_RANK");
+    }
+
+    void set_bindings() {
+        setenv("TT_MESH_ID", local_mesh_id_.c_str(), 1);
+        setenv("TT_HOST_RANK", local_host_rank_.c_str(), 1);
+    }
+
+    uint32_t get_local_mesh_id() const {
+        return std::stoi(local_mesh_id_);
+    }
+
+    uint32_t get_local_host_rank() const {
+        return std::stoi(local_host_rank_);
+    }
+
+private:
+    std::string local_mesh_id_;
+    std::string local_host_rank_;
+};
+
+} // namespace utils
+
 class Custom2x4Fabric2DDynamicFixture : public BaseFabricFixture {
 public:
     void SetUp() override {
+        local_binding_manager_.validate_local_mesh_id_and_host_rank();
+
         static const std::tuple<std::string, std::vector<std::vector<eth_coord_t>>> multi_mesh_2x4_chip_mappings =
             std::tuple{
                 "tests/tt_metal/tt_fabric/custom_mesh_descriptors/t3k_2x2_mesh_graph_descriptor.yaml",
                 std::vector<std::vector<eth_coord_t>>{
                     {{0, 0, 0, 0, 0}, {0, 1, 0, 0, 0}, {0, 0, 1, 0, 0}, {0, 1, 1, 0, 0}},
                     {{0, 0, 0, 0, 0}, {0, 1, 0, 0, 0}, {0, 0, 1, 0, 0}, {0, 1, 1, 0, 0}}}};
-
+        auto chip_to_eth_coord_mapping = utils::get_physical_chip_mapping_from_eth_coords_mapping(std::get<1>(multi_mesh_2x4_chip_mappings), 
+            local_binding_manager_.get_local_mesh_id());
+    
         tt::tt_metal::MetalContext::instance().set_custom_control_plane_mesh_graph(
             std::get<0>(multi_mesh_2x4_chip_mappings),
-            get_physical_chip_mapping_from_eth_coords_mapping(std::get<1>(multi_mesh_2x4_chip_mappings)));
-
+            chip_to_eth_coord_mapping);
+        
         this->SetUpDevices(tt::tt_metal::FabricConfig::FABRIC_2D_DYNAMIC);
     }
 
     void TearDown() override {
         BaseFabricFixture::TearDown();
+        local_binding_manager_.clear_bindings();
         tt::tt_metal::MetalContext::instance().set_default_control_plane_mesh_graph();
+        local_binding_manager_.set_bindings();
     }
+
+private:
+    utils::LocalBindingManager local_binding_manager_;
 };
 
 TEST_F(Custom2x4Fabric2DDynamicFixture, RandomizedInterMeshUnicast) {

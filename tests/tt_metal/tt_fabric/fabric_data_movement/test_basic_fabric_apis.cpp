@@ -1,3 +1,4 @@
+
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -68,29 +69,6 @@ void ValidateBuffer(const uint32_t& expected_data, std::shared_ptr<tt_metal::Buf
     tt::tt_metal::detail::ReadFromBuffer(buffer, actual_data);
     EXPECT_EQ(expected_data, actual_data[0]);
 }
-
-class Custom2x4Fabric2DDynamicFixture : public BaseFabricFixture {
-public:
-    void SetUp() override {
-        static const std::tuple<std::string, std::vector<std::vector<eth_coord_t>>> multi_mesh_2x4_chip_mappings =
-            std::tuple{
-                "tests/tt_metal/tt_fabric/custom_mesh_descriptors/t3k_2x2_mesh_graph_descriptor.yaml",
-                std::vector<std::vector<eth_coord_t>>{
-                    {{0, 0, 0, 0, 0}, {0, 1, 0, 0, 0}, {0, 0, 1, 0, 0}, {0, 1, 1, 0, 0}},
-                    {{0, 0, 0, 0, 0}, {0, 1, 0, 0, 0}, {0, 0, 1, 0, 0}, {0, 1, 1, 0, 0}}}};
-
-        tt::tt_metal::MetalContext::instance().set_custom_control_plane_mesh_graph(
-            std::get<0>(multi_mesh_2x4_chip_mappings),
-            get_physical_chip_mapping_from_eth_coords_mapping(std::get<1>(multi_mesh_2x4_chip_mappings)));
-
-        this->SetUpDevices(tt::tt_metal::FabricConfig::FABRIC_2D_DYNAMIC);
-    }
-
-    void TearDown() override {
-        BaseFabricFixture::TearDown();
-        tt::tt_metal::MetalContext::instance().set_default_control_plane_mesh_graph();
-    }
-};
 
 void CreateSenderKernel(
     tt::tt_metal::Program& sender_program,
@@ -785,23 +763,12 @@ TEST_F(Fabric2DDynamicFixture, TestUnicastRaw) {
 }
 
 // 2D Dynamic Routing Unicast Tests
-TEST_F(Custom2x4Fabric2DDynamicFixture, TestCustomUnicastRaw) {
-    for (uint32_t i = 0; i < 20; i++) {
+TEST_P(T3kCustomMeshGraphFabric2DDynamicFixture, TestUnicastRaw) {
+    auto [mesh_graph_desc_path, mesh_graph_eth_coords] = GetParam();
+    CustomMeshGraphFabric2DDynamicFixture::SetUp(
+        mesh_graph_desc_path, get_physical_chip_mapping_from_eth_coords_mapping(mesh_graph_eth_coords));
+    for (uint32_t i = 0; i < 10; i++) {
         RunTestUnicastRaw(this);
-    }
-}
-
-TEST_F(Custom2x4Fabric2DDynamicFixture, TestCustomMultiMeshMcast) {
-    std::vector<FabricNodeId> mcast_req_nodes = {
-        FabricNodeId(MeshId{0}, 1), FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 2)};
-    std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 0)};
-    std::vector<McastRoutingInfo> routing_info = {
-        McastRoutingInfo{.mcast_dir = RoutingDirection::E, .num_mcast_hops = 1}};
-    std::vector<std::vector<FabricNodeId>> mcast_group_node_ids = {
-        {FabricNodeId(MeshId{1}, 3)}, {FabricNodeId(MeshId{1}, 1)}};
-    for (uint32_t i = 0; i < 20; i++) {
-        RunMultiMeshLineMcast(
-            this, mcast_req_nodes[i % 4], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
     }
 }
 
