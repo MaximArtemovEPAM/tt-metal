@@ -24,7 +24,7 @@ class TtnnSCDown:
             self.conv_pt.cv2,
             enable_identity=True,
             use_1d_systolic_array=False,
-            auto_shard=auto_shard,
+            # auto_shard=auto_shard,
             deallocate_activation=True,
         )
 
