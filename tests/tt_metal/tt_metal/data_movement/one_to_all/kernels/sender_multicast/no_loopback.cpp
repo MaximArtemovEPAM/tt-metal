@@ -55,6 +55,7 @@ void kernel_main() {
     DeviceTimestampedData("Number of transactions", num_of_transactions);
     DeviceTimestampedData("Transaction size in bytes", bytes_per_transaction);
     DeviceTimestampedData("Test id", test_id);
+    DeviceTimestampedData("NoC Index", noc_index);
 
     // For multicast schemes, we can also log the multicast scheme type and grid size
     if (multicast_scheme_type != 0) {

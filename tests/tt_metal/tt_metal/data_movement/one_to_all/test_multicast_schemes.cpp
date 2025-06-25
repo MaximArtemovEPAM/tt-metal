@@ -205,27 +205,17 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastSchemesWithoutLoopback)
         10. Sender out grid ending not column not row
 */
 
-namespace multicast_schemes_debug::test_params {
+TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastSchemeSingle) {
+    uint32_t test_case_id = 110;
 
-static constexpr uint32_t test_case_id = 110;
-static constexpr bool loopback = false;
-static constexpr NOC noc_id = NOC::NOC_0;
-static constexpr uint32_t sub_grid_dimension_size = 9;
-
-}  // namespace multicast_schemes_debug::test_params
-
-TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastScheme1) {
-    uint32_t multicast_scheme_number = 1;
+    bool loopback = false;
+    NOC noc_id = NOC::NOC_0;
+    uint32_t sub_grid_dimension_size = arch_ == ARCH::WORMHOLE_B0 ? 7 : 9;  // Adjust based on architecture
+    unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType multicast_scheme =
+        unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType::SenderInGridTopRight;
 
     tt::tt_metal::unit_tests::dm::core_to_all::multicast_schemes::test(
-        arch_,
-        devices_,
-        num_devices_,
-        multicast_schemes_debug::test_params::test_case_id,
-        multicast_schemes_debug::test_params::sub_grid_dimension_size,
-        multicast_schemes_debug::test_params::noc_id,
-        static_cast<unit_tests::dm::core_to_all::multicast_schemes::MulticastSchemeType>(multicast_scheme_number),
-        multicast_schemes_debug::test_params::loopback);
+        arch_, devices_, num_devices_, test_case_id, sub_grid_dimension_size, noc_id, multicast_scheme, loopback);
 }
 
 }  // namespace tt::tt_metal

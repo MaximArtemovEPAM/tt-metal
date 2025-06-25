@@ -582,6 +582,7 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
             "transactions": [],
         }
         if test_id >= 100:
+            data["noc_index"] = []
             data["multicast_scheme_types"] = []
             data["grid_dimensions"] = []
 
@@ -598,9 +599,11 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
             data["transactions"].append(num_transactions)
 
             if test_id >= 100:
+                noc_index = attr["NoC Index"]
                 multicast_scheme_type = attr["Multicast Scheme Type"]
                 grid_dimensions = f"{attr['Subordinate Grid Size X']} x {attr['Subordinate Grid Size Y']}"
 
+                data["noc_index"].append(noc_index)
                 data["multicast_scheme_types"].append(multicast_scheme_type)
                 data["grid_dimensions"].append(grid_dimensions)
 
@@ -657,27 +660,34 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
         ax.legend(loc="center left", bbox_to_anchor=(1.0, 0.5), borderaxespad=0)  # Legend outside plot
         ax.grid()
 
-    # Plot Type 3 (Multicast Schemes): Grid Dimensions vs Bandwidth (one line per multicast scheme)
-    def plot_bandwidth(ax, data, riscv, x_axis, lines):
-        # Combine x_axis, bandwidths, and lines into a single list of tuples
-        combined_data = list(zip(data[riscv][x_axis], data[riscv]["bandwidths"], data[riscv][lines]))
+    # General Plot
+    def plot_bandwidth(ax, data, riscv, noc_index, x_axis, lines):
+        # Filter data where "noc_index" matches the input noc_index
+        filtered_data = [
+            (data[riscv][x_axis][i], data[riscv]["bandwidths"][i], data[riscv][lines][i])
+            for i in range(len(data[riscv][x_axis]))
+            if data[riscv].get("noc_index", [None])[i] == noc_index
+        ]
 
-        # Sort the combined data by the x_axis values
-        combined_data.sort(key=lambda x: x[0])
+        if not filtered_data:
+            return  # No data to plot for the given noc_index
+
+        # Sort the filtered data by the x_axis values
+        filtered_data.sort(key=lambda x: x[0])
 
         # Extract sorted x_axis, bandwidths, and lines
-        sorted_x_axis, sorted_bandwidths, sorted_lines = zip(*combined_data)
+        sorted_x_axis, sorted_bandwidths, sorted_lines = zip(*filtered_data)
 
         # Get unique line categories
         lines_list = sorted(set(sorted_lines))
 
         for line in lines_list:
             # Filter data for the current line category
-            filtered_data = [(x, bw) for x, bw, l in zip(sorted_x_axis, sorted_bandwidths, sorted_lines) if l == line]
+            line_data = [(x, bw) for x, bw, l in zip(sorted_x_axis, sorted_bandwidths, sorted_lines) if l == line]
 
-            if filtered_data:
-                sizes, bws = zip(*filtered_data)
-                ax.plot(sizes, bws, label=f"{riscv.upper()} ({lines}: {line})", marker="o")
+            if line_data:
+                sizes, bws = zip(*line_data)
+                ax.plot(sizes, bws, label=f"{riscv.upper()}, NoC {noc_index}, {lines}: {line}", marker="o")
 
         ax.set_xlabel(f"{x_axis}")
         ax.set_ylabel("Bandwidth (bytes/cycle)")
@@ -751,13 +761,15 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
                 axes[0][0],
                 data,
                 riscv="riscv_0",
+                noc_index=0,
                 x_axis="grid_dimensions",
                 lines="multicast_scheme_types",
             )
             plot_bandwidth(
                 axes[0][1],
                 data,
-                riscv="riscv_1",
+                riscv="riscv_0",
+                noc_index=1,
                 x_axis="grid_dimensions",
                 lines="multicast_scheme_types",
             )
@@ -765,13 +777,15 @@ def plot_dm_stats(dm_stats, output_file="dm_stats_plot.png", arch="blackhole"):
                 axes[1][0],
                 data,
                 riscv="riscv_0",
+                noc_index=0,
                 x_axis="multicast_scheme_types",
                 lines="grid_dimensions",
             )
             plot_bandwidth(
                 axes[1][1],
                 data,
-                riscv="riscv_1",
+                riscv="riscv_0",
+                noc_index=1,
                 x_axis="multicast_scheme_types",
                 lines="grid_dimensions",
             )
