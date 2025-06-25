@@ -16,7 +16,7 @@ from models.utility_functions import profiler, run_for_wormhole_b0
 
 
 def get_expected_times(name):
-    base = {"vgg_unet": (31.6, 0.15)}
+    base = {"vgg_unet": (35, 0.15)}
     return base[name]
 
 

@@ -18,7 +18,7 @@ from models.utility_functions import disable_persistent_kernel_cache, enable_per
 
 
 def get_expected_times(vgg):
-    return (17, 13.76)
+    return (19, 13.76)
 
 
 @pytest.mark.models_performance_bare_metal

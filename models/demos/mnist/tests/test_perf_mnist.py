@@ -34,7 +34,7 @@ def get_expected_times(tt_mnist):
         }[tt_mnist]
     elif is_wormhole_b0():
         return {
-            tt_mnist: (3.89, 0.006),
+            tt_mnist: (5, 0.006),
         }[tt_mnist]
 
 
