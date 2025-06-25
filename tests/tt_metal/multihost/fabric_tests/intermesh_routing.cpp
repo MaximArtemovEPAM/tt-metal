@@ -209,7 +209,7 @@ void RandomizedInterMeshUnicast(
         auto sender_program = tt_metal::CreateProgram();
         auto sender_kernel = tt_metal::CreateKernel(
             sender_program,
-            "tests/tt_metal/tt_metal/perf_microbenchmark/routing/kernels/tt_fabric_1d_tx.cpp",
+            "tests/tt_metal/multihost/fabric_tests/kernels/tt_fabric_2d_unicast_tx.cpp",
             {sender_logical_core},
             tt_metal::DataMovementConfig{
                 .processor = tt_metal::DataMovementProcessor::RISCV_0,

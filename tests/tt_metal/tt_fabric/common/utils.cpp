@@ -99,15 +99,11 @@ std::map<FabricNodeId, chip_id_t> get_physical_chip_mapping_from_eth_coords_mapp
     const std::vector<std::vector<eth_coord_t>>& mesh_graph_eth_coords) {
     const auto& cluster = tt::tt_metal::MetalContext::instance().get_cluster();
     std::map<FabricNodeId, chip_id_t> physical_chip_ids_mapping;
-    auto& control_plane = tt::tt_metal::MetalContext::instance().get_control_plane();
-    auto local_mesh_id = control_plane.get_local_mesh_info().mesh_id;
     for (std::uint32_t mesh_id = 0; mesh_id < mesh_graph_eth_coords.size(); mesh_id++) {
-        if (mesh_id == *(local_mesh_id)) {
-            for (std::uint32_t chip_id = 0; chip_id < mesh_graph_eth_coords[mesh_id].size(); chip_id++) {
-                const auto& eth_coord = mesh_graph_eth_coords[mesh_id][chip_id];
-                physical_chip_ids_mapping.insert(
-                    {FabricNodeId(MeshId{mesh_id}, chip_id), cluster.get_physical_chip_id_from_eth_coord(eth_coord)});
-            }
+        for (std::uint32_t chip_id = 0; chip_id < mesh_graph_eth_coords[mesh_id].size(); chip_id++) {
+            const auto& eth_coord = mesh_graph_eth_coords[mesh_id][chip_id];
+            physical_chip_ids_mapping.insert(
+                {FabricNodeId(MeshId{mesh_id}, chip_id), cluster.get_physical_chip_id_from_eth_coord(eth_coord)});
         }
     }
     return physical_chip_ids_mapping;
