@@ -8,6 +8,7 @@
 #include "compute_kernel_api/pack_untilize.h"
 #include "compute_kernel_api/tile_move_copy.h"
 #include "mod_div_lib.h"
+#include "tools/profiler/kernel_profiler.hpp"
 
 #include "compute_kernel_api/eltwise_unary/sfpu_split_includes.h"
 #include "tt_metal/fabric/hw/inc/edm_fabric/compile_time_arg_tmp.hpp"
@@ -234,6 +235,7 @@ void MAIN {
         cb_pop_front(sync_cb2, 1);
 
         for (uint32_t block = 0; block < num_blocks; block++) {
+            DeviceZoneScopedN("compute_block");
             const uint32_t curr_ring_idx = (ring_idx + block) % ring_size;
             uint32_t unpadded_in0_block_w = unpadded_in0_shard_widths_in_tiles[curr_ring_idx];
 
@@ -257,7 +259,10 @@ void MAIN {
                 cb_reserve_back(input0_cb_id, in0_block_num_tiles);
                 cb_push_back(input0_cb_id, in0_block_num_tiles);
             }
-            cb_wait_front(input0_cb_id, in0_block_num_tiles);
+            {
+                DeviceZoneScopedN("wait_in0");
+                cb_wait_front(input0_cb_id, in0_block_num_tiles);
+            }
 
 #ifdef ENABLE_GLOBAL_CB
             UNPACK((calculate_next_block_index_and_update_rd_ptr(

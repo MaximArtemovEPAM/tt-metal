@@ -136,7 +136,7 @@ void MAIN {
     constexpr uint32_t in1_transpose_tile = false;
 #endif
 
-    constexpr bool spill = true;  // num_blocks_inner_dim > 1;
+    constexpr bool spill = false;  // num_blocks_inner_dim > 1;
 
     mm_block_init(
         in0_cb_id, in1_cb_id, mm_partials_cb_id, in1_transpose_tile, out_subblock_w, out_subblock_h, in0_block_w);

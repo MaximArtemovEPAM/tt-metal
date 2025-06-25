@@ -333,8 +333,8 @@ def run_multi_core_matmul_1d(
         per_core_N=out_block_w,
         fuse_batch=True,
         fused_activation=activation,
-        mcast_in0=True,
-        gather_in0=False,
+        mcast_in0=False,
+        gather_in0=True,
         hop_cores=hop_core_range_set,
         untilize_out=untilize_out,
     )
@@ -849,7 +849,7 @@ def test_multi_core_matmul_1d_gs(
             True,
             False,
             (8, 3),  # PREFETCHER_NOC1_GRID,
-            False,
+            True,
             False,
         ),
         (
@@ -949,7 +949,7 @@ def test_matmul_1d_ring_llama_perf(
         use_physical_to_logical_mapping=False,
         hop_grid=hop_grid,
         in1_is_dram_interleaved=in1_is_dram_interleaved,
-        # in1_is_in_dram=True,
+        in1_is_in_dram=True,
         untilize_out=untilize_out,
     )
 

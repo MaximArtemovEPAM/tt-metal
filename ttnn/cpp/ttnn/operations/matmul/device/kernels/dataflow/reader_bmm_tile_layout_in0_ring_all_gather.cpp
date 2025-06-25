@@ -56,6 +56,7 @@ void kernel_main() {
     uint32_t hop_core_offset = static_cast<uint32_t>(is_hop_core);
 
     for (uint32_t shard_cnt = hop_core_offset; shard_cnt < ring_size; shard_cnt++) {
+        DeviceZoneScopedN("activations_block");
         uint32_t curr_ring_idx = (ring_idx + shard_cnt) % ring_size;
         bool skip_send = unpadded_in0_shard_widths_in_tiles[curr_ring_idx] == 0 && !is_hop_core;
 
