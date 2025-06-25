@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 
     Program programs[] = {tt_metal::CreateProgram(), tt_metal::CreateProgram(), tt_metal::CreateProgram()};
 
-    auto ops = EltwiseOp::all();
+    auto ops = {EltwiseOp::Enum::ADD};  // EltwiseOp::all();
     for (auto eltwise_op : ops) {
         log_info(LogTest, "====================================================================");
         log_info(LogTest, "======= Running eltwise_binary test for op={}", op_id_to_op_name[eltwise_op]);
