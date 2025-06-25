@@ -6,6 +6,7 @@
 #include "ckernel.h"
 #include "ckernel_globals.h"
 #include "ckernel_include.h"
+#include "debug/waypoint.h"
 #include "llk_unpack_common_api.h"
 #include "stream_interface.h"
 #include "stream_io_map.h"
@@ -15,6 +16,7 @@ using namespace ckernel;
 
 // Wait for N tiles available in the incoming stream
 inline void llk_wait_tiles(int operand, std::int32_t num_tiles) {
+    WAYPOINT("WT");
     // TODO(MO): Manually uncomment until issue #6619 is resolved
     // DeviceZoneScopedSumN1("CB-COMPUTE-WAIT-FRONT");
     std::uint32_t input = operand;
@@ -32,7 +34,7 @@ inline void llk_wait_tiles(int operand, std::int32_t num_tiles) {
 
 // Pop N tiles from the incoming stream
 inline void llk_pop_tiles(
-    const std::int32_t operand, const std::int32_t num_tiles, const std::int32_t block_c_dim = 0) {
+    WAYPOINT("PT") const std::int32_t operand, const std::int32_t num_tiles, const std::int32_t block_c_dim = 0) {
     std::uint32_t input = operand;
     volatile tt_reg_ptr std::uint32_t* tiles_acked_ptr =
         (volatile std::uint32_t*)((((volatile std::uint32_t)get_cb_tiles_acked_ptr(operand)) >> 2) & 0x3ffff);
