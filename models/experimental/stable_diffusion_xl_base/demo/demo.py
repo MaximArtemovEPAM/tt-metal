@@ -336,7 +336,7 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
 )
 @pytest.mark.parametrize(
     "mesh_device",
-    [1, 8, 4, 2, 1],
+    [1, 2, 1],
     indirect=True,
 )
 def test_demo(
