@@ -10,22 +10,11 @@ from tests.tt_eager.python_api_testing.sweep_tests.comparison_funcs import (
     comp_allclose,
     comp_pcc,
 )
+from models.utility_functions import nearest_y
+
 import ttnn
 from loguru import logger
 import pytest
-
-
-def nearest_n(x, n):
-    return ((x + n - 1) // n) * n
-
-
-def nearest_pow_2(x):
-    if x < 1:
-        raise ValueError("x must be >= 1")
-    import math
-
-    power = math.ceil(math.log2(x))
-    return 1 << power
 
 
 def scaled_dot_product_attention_reference(Q, K, V, start_indices, padded_layer_len, scale, is_causal=True):
@@ -104,8 +93,7 @@ def run_flash_mla_decode_impl(
     ### TT Setup
     #######################
 
-    padded_num_heads = nearest_pow_2(nearest_n(nh, n=32))
-    q_chunk_size = padded_num_heads
+    q_chunk_size = 0  # Not used in decode
     k_chunk_size = 128
 
     scale = (kv_lora_rank + d_rope) ** -0.5
@@ -113,7 +101,7 @@ def run_flash_mla_decode_impl(
     max_start_idx = seq_len // 2
     start_indices = np.linspace(0, max_start_idx, batch, dtype=np.int32).tolist() if batch > 1 else [max_start_idx]
 
-    padded_layer_len = nearest_n(max_start_idx + 1, n=k_chunk_size)
+    padded_layer_len = nearest_y(max_start_idx + 1, k_chunk_size)
 
     sdpa_program_config = ttnn.SDPAProgramConfig(
         compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
@@ -146,7 +134,7 @@ def run_flash_mla_decode_impl(
             # Only batch shard if nkv > 1
             q_num_cores = min(batch, q_num_cores)  # Limit q_num_cores to batch size
 
-        block_height = nearest_n(np.prod(q.shape[:-1]) // q_num_cores, ttnn.TILE_SIZE)
+        block_height = nearest_y(np.prod(q.shape[:-1]) // q_num_cores, ttnn.TILE_SIZE)
 
         q_core_grid = ttnn.num_cores_to_corerangeset(
             q_num_cores, device.compute_with_storage_grid_size(), row_wise=True

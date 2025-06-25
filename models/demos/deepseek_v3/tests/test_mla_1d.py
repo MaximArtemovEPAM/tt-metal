@@ -13,6 +13,7 @@ from transformers import AutoConfig
 
 import ttnn
 from models.demos.deepseek_v3.tt.mla_1d import MLA_1D
+from models.demos.deepseek_v3.tt.rope import RotarySetup
 from models.demos.deepseek_v3.utils.run_config import create_run_config
 
 # Import from local reference files instead of HuggingFace
@@ -215,12 +216,27 @@ def test_forward_pass(
     )
     position_ids = [start_pos] * batch_size  # TODO: Only support same position for all users
 
+    # RoPE stuff
+    rope_setup = RotarySetup(
+        device=mesh_device,
+        batch_size=batch_size,
+        reference_args=reference_args,
+    )
+
+    rot_idxs = torch.tensor(position_ids, dtype=torch.int32)  # [1, batch_size]
+    rot_mats = rope_setup.get_rot_mats(rot_idxs)
+    rope_tensors = {
+        "cos_matrix": rot_mats[0],
+        "sin_matrix": rot_mats[1],
+        "trans_matrix": rope_setup.get_both_trans_mats()["decode"],
+    }
+
     ############################
     ### TTNN forward pass
     ############################
     tt_mla = MLA_1D(hf_config, mesh_device)
 
-    tt_output = tt_mla.forward(tt_input, position_ids, run_config, mesh_device)
+    tt_output = tt_mla.forward(tt_input, position_ids, rope_tensors, run_config, mesh_device)
     tt_output_torch = ttnn.to_torch(tt_output)
 
     if mode == "prefill":

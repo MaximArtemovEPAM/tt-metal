@@ -9,17 +9,13 @@ import torch
 import ttnn
 from models.demos.deepseek_v3.utils.abstract_module import AbstractModule
 from models.demos.deepseek_v3.utils.config_dataclass import LinearConfig, ReshardConfig
-from models.demos.deepseek_v3.utils.config_helpers import TILE_SIZE
-
-
-def nearest_n(x, n):
-    return ((x + n - 1) // n) * n
+from models.utility_functions import nearest_y
 
 
 class MLA_1D(AbstractModule):
     """ """
 
-    MAX_BATCH_SIZE = TILE_SIZE
+    MAX_BATCH_SIZE = ttnn.TILE_SIZE
 
     @staticmethod
     def convert_weights(hf_config, state_dict, output_path, mesh_device):
@@ -309,9 +305,49 @@ class MLA_1D(AbstractModule):
             program_config=None,
         )
 
+        # Resharding for q_rope
+        # TODO: Should be dynamic based on batch size?
+        q_rope_shape = (1, MLA_1D.MAX_BATCH_SIZE, num_heads, qk_rope_head_dim)
+        q_rope_shard_height = nearest_y(q_rope_shape[2], ttnn.TILE_SIZE)
+        q_rope_shard_width = q_rope_shape[3]
+        q_rope_num_cores = q_rope_shape[1]
+        q_rope_core_grid = ttnn.num_cores_to_corerangeset(q_rope_num_cores, grid_size, row_wise=True)
+        q_rope_mem_cfg = ttnn.create_sharded_memory_config(
+            shape=(q_rope_shard_height, q_rope_shard_width),
+            core_grid=q_rope_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        config["q_rope_reshard"] = ReshardConfig(
+            memory_config=q_rope_mem_cfg,
+        )
+        config["q_rope_out_reshard"] = ReshardConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
+        # Resharding for kv_rope
+        # TODO: Should be dynamic based on batch size?
+        kv_rope_shape = (1, MLA_1D.MAX_BATCH_SIZE, 1, qk_rope_head_dim)
+        kv_rope_shard_height = nearest_y(kv_rope_shape[2], ttnn.TILE_SIZE)
+        kv_rope_shard_width = kv_rope_shape[3]
+        kv_rope_num_cores = kv_rope_shape[1]
+        kv_rope_core_grid = ttnn.num_cores_to_corerangeset(kv_rope_num_cores, grid_size, row_wise=True)
+        kv_rope_mem_cfg = ttnn.create_sharded_memory_config(
+            shape=(kv_rope_shard_height, kv_rope_shard_width),
+            core_grid=kv_rope_core_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        config["kv_rope_reshard"] = ReshardConfig(
+            memory_config=kv_rope_mem_cfg,
+        )
+        config["kv_rope_out_reshard"] = ReshardConfig(
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
         # Resharding for kvpe
         kvpe_shape = (1, MLA_1D.MAX_BATCH_SIZE, 1, kv_lora_rank + qk_rope_head_dim)
-        kvpe_shard_height = nearest_n(kvpe_shape[2], ttnn.TILE_SIZE)
+        kvpe_shard_height = nearest_y(kvpe_shape[2], ttnn.TILE_SIZE)
         kvpe_shard_width = kvpe_shape[3]
         kvpe_num_cores = kvpe_shape[1]
         kvpe_core_grid = ttnn.num_cores_to_corerangeset(kvpe_num_cores, grid_size, row_wise=True)
@@ -344,7 +380,7 @@ class MLA_1D(AbstractModule):
         )
 
         q_num_cores = MLA_1D.MAX_BATCH_SIZE  # TODO: How to use non-padded batch size here? (might need to be dynamic)
-        block_height = nearest_n((MLA_1D.MAX_BATCH_SIZE * num_heads) // q_num_cores, ttnn.TILE_SIZE)
+        block_height = nearest_y((MLA_1D.MAX_BATCH_SIZE * num_heads) // q_num_cores, ttnn.TILE_SIZE)
         block_width = kv_lora_rank + qk_rope_head_dim
 
         q_core_grid = ttnn.num_cores_to_corerangeset(q_num_cores, grid_size, row_wise=True)
@@ -413,7 +449,6 @@ class MLA_1D(AbstractModule):
         self.max_seq_len = hf_config.max_seq_len
 
         # TODO: Set up Norm module
-        # TODO: Set up RoPE module
 
         self.kvpe_cache = self.init_cache(hf_config, mesh_device)
 
@@ -454,17 +489,17 @@ class MLA_1D(AbstractModule):
 
         return tt_cache
 
-    def forward(self, x, position_ids, cfg, mesh_device):
+    def forward(self, x, position_ids, rope_tensors, cfg, mesh_device):
         """Decode is very straightforward but prefill reshapes and has dynamic program configs
         so we implement forward as two functions for clarity.
         """
         if cfg["mode"] == "decode":
-            return self._forward_decode(x, position_ids, cfg, mesh_device)
+            return self._forward_decode(x, position_ids, rope_tensors, cfg, mesh_device)
         else:
             assert cfg["mode"] == "prefill"
             return self._forward_prefill(x, cfg, mesh_device)
 
-    def _forward_decode(self, x, position_ids, cfg, mesh_device):
+    def _forward_decode(self, x, position_ids, rope_tensors, cfg, mesh_device):
         """Straightforward forward pass for decode mode"""
 
         bsz = x.shape[2]
@@ -485,8 +520,17 @@ class MLA_1D(AbstractModule):
         tt_q_nope = ttnn.linear(tt_q_nope, **cfg["wkv_b1"])  # Expensive matmul (because replicated in batch)
         tt_q_nope = ttnn.permute(tt_q_nope, (2, 0, 1, 3))  # [1, bsz, num_heads, qk_nope_head_dim]
 
-        # TODO: Add RoPE here for Q
+        # Q RoPE
         tt_q_rope = ttnn.permute(tt_q_rope, (1, 0, 2, 3))  # [1, bsz, num_heads, qk_rope_head_dim], should be no-op
+        tt_q_rope = ttnn.to_memory_config(tt_q_rope, **cfg["q_rope_reshard"])
+        tt_q_rope = ttnn.experimental.rotary_embedding_llama(
+            tt_q_rope,
+            rope_tensors["cos_matrix"],
+            rope_tensors["sin_matrix"],
+            rope_tensors["trans_matrix"],
+            is_decode_mode=True,
+        )
+        tt_q_rope = ttnn.to_memory_config(tt_q_rope, **cfg["q_rope_out_reshard"])
 
         # Q ready for FlashMLA
         tt_q = ttnn.concat([tt_q_nope, tt_q_rope], dim=-1)
@@ -499,7 +543,19 @@ class MLA_1D(AbstractModule):
         )
         ttnn.deallocate(tt_kv)
 
-        # TODO: Add RoPE here for KV
+        # KV RoPE
+        tt_kv_rope = ttnn.permute(tt_kv_rope, (0, 2, 1, 3))  # [1, bsz, 1, qk_rope_head_dim]
+        tt_kv_rope = ttnn.to_memory_config(tt_kv_rope, **cfg["kv_rope_reshard"])
+        tt_kv_rope = ttnn.experimental.rotary_embedding_llama(
+            tt_kv_rope,
+            rope_tensors["cos_matrix"],
+            rope_tensors["sin_matrix"],
+            rope_tensors["trans_matrix"],
+            is_decode_mode=True,
+        )
+        tt_kv_rope = ttnn.to_memory_config(tt_kv_rope, **cfg["kv_rope_out_reshard"])
+        tt_kv_rope = ttnn.permute(tt_kv_rope, (0, 2, 1, 3))  # [1, 1, bsz, qk_rope_head_dim]
+
         tt_kvpe = ttnn.concat([tt_kv_nope, tt_kv_rope], dim=-1)
         # TODO: Add Norm here for KVPE
         tt_kvpe = ttnn.permute(tt_kvpe, (0, 2, 1, 3))  # [1, bsz, 1, kv_lora_rank + qk_rope_head_dim]

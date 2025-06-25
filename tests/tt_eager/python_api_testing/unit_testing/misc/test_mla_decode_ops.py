@@ -4,6 +4,7 @@
 
 import os
 import math
+import json
 import torch
 import numpy as np
 from tests.tt_eager.python_api_testing.sweep_tests.comparison_funcs import (
@@ -15,52 +16,19 @@ from loguru import logger
 import pytest
 from dataclasses import dataclass
 
-from models.tt_transformers.tt.rope import RotarySetup
-from tests.tt_eager.python_api_testing.unit_testing.misc.mla_decode_ops_common import (
+from models.demos.deepseek_v3.tt.rope import RotarySetup
+from models.demos.t3000.llama2_70b.reference.llama.llama31_8b.model import RMSNorm as ReferenceRMSNorm
+from models.common.rmsnorm import RMSNorm as RMSNorm
+from models.demos.deepseek_v3_impl.model import (
+    ModelArgs,
     precompute_freqs_cis,
     apply_rotary_emb,
 )
-from models.demos.t3000.llama2_70b.reference.llama.llama31_8b.model import RMSNorm as ReferenceRMSNorm
-from models.common.rmsnorm import RMSNorm as RMSNorm
+from models.utility_functions import nearest_y
 
 
 TP = 8
 DP = 4
-
-
-def nearest_n(x, n):
-    return ((x + n - 1) // n) * n
-
-
-@dataclass
-class ModelArgs:
-    """
-    Data class for defining model arguments and hyperparameters.
-
-    All Single-Device Shapes!
-    """
-
-    vocab_size: int = 129280
-    dim: int = 7168
-    inter_dim: int = 18432
-    moe_inter_dim: int = 2048
-    n_layers: int = 61
-    n_dense_layers: int = 3
-    n_heads: int = 128
-    # mla
-    q_lora_rank: int = 1536
-    kv_lora_rank: int = 512
-    qk_nope_head_dim: int = 128
-    qk_rope_head_dim: int = 64
-    v_head_dim: int = 128
-    # yarn
-    original_seq_len: int = 4096
-    rope_theta: float = 10000.0
-    rope_factor: float = 1  # 40 # TODO: Only test without scaling for now!
-    beta_fast: int = 1  # 32 # TODO: Only test without scaling for now!
-    beta_slow: int = 1
-    mscale: float = 1.0
-    max_seq_len: int = 128 * 1024  # TODO: Confirm this
 
 
 class ModelConfig:
@@ -155,7 +123,7 @@ class ModelConfig:
         self.configs["QROPE_SHAPE"] = (1, self.bsz // DP, self.args.n_heads // TP, self.args.qk_rope_head_dim)
         self.configs["QROPE_DTYPE"] = ttnn.bfloat16
 
-        q_rope_shard_height = nearest_n(self.configs["QROPE_SHAPE"][2], ttnn.TILE_SIZE)
+        q_rope_shard_height = nearest_y(self.configs["QROPE_SHAPE"][2], ttnn.TILE_SIZE)
         q_rope_shard_width = self.configs["QROPE_SHAPE"][3]
         q_rope_num_cores = self.configs["QROPE_SHAPE"][1]
         q_rope_core_grid = ttnn.num_cores_to_corerangeset(q_rope_num_cores, self.grid_size, row_wise=True)
@@ -169,7 +137,7 @@ class ModelConfig:
         # k_rope
         self.configs["KROPE_SHAPE"] = (1, self.bsz // DP // TP, 1, self.args.qk_rope_head_dim)
         self.configs["KROPE_DTYPE"] = ttnn.bfloat16
-        k_rope_shard_height = nearest_n(self.configs["KROPE_SHAPE"][2], ttnn.TILE_SIZE)
+        k_rope_shard_height = nearest_y(self.configs["KROPE_SHAPE"][2], ttnn.TILE_SIZE)
         k_rope_shard_width = self.configs["KROPE_SHAPE"][3]
         k_rope_num_cores = self.configs["KROPE_SHAPE"][1]
         k_rope_core_grid = ttnn.num_cores_to_corerangeset(k_rope_num_cores, self.grid_size, row_wise=True)
@@ -183,7 +151,7 @@ class ModelConfig:
         # KVPE Cache
         self.configs["KVPE_SHAPE"] = (1, self.bsz // DP // TP, 1, self.args.kv_lora_rank + self.args.qk_rope_head_dim)
         self.configs["KVPE_DTYPE"] = ttnn.bfloat16
-        kvpe_shard_height = nearest_n(self.configs["KVPE_SHAPE"][2], ttnn.TILE_SIZE)
+        kvpe_shard_height = nearest_y(self.configs["KVPE_SHAPE"][2], ttnn.TILE_SIZE)
         kvpe_shard_width = self.configs["KVPE_SHAPE"][3]
         kvpe_num_cores = self.configs["KVPE_SHAPE"][1]
         kvpe_core_grid = ttnn.num_cores_to_corerangeset(kvpe_num_cores, self.grid_size, row_wise=True)
@@ -197,19 +165,19 @@ class ModelConfig:
         self.configs["KVPE_CACHE_DTYPE"] = ttnn.bfloat4_b
 
         # q_norm
-        self.configs["QNORM_SHAPE"] = (1, self.bsz // DP, 1, self.args.q_lora_rank)
+        self.configs["QNORM_SHAPE"] = (1, 1, self.bsz // DP, self.args.q_lora_rank)
         self.configs["QNORM_DTYPE"] = ttnn.bfloat16
         self.configs["QNORM_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
 
         # k_norm
-        self.configs["KNORM_SHAPE"] = (1, self.bsz // DP // TP, 1, self.args.kv_lora_rank + self.args.qk_rope_head_dim)
+        self.configs["KNORM_SHAPE"] = (1, 1, self.bsz // DP // TP, self.args.kv_lora_rank + self.args.qk_rope_head_dim)
         self.configs["KNORM_DTYPE"] = ttnn.bfloat16
         self.configs["KNORM_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
         # # TODO: Debug, gives bad PCC
         # knorm_num_cores = min(np.prod(self.grid_size), math.ceil(self.configs["KNORM_SHAPE"][3] / ttnn.TILE_SIZE))
         # knorm_core_grid = ttnn.num_cores_to_corerangeset(knorm_num_cores, self.grid_size, row_wise=True)
-        # knorm_shard_height = nearest_n(self.configs["KNORM_SHAPE"][2], ttnn.TILE_SIZE) * np.prod(self.configs["KNORM_SHAPE"][:2])
-        # knorm_shard_width = nearest_n(self.configs["KNORM_SHAPE"][3] // knorm_num_cores, ttnn.TILE_SIZE)
+        # knorm_shard_height = nearest_y(self.configs["KNORM_SHAPE"][2], ttnn.TILE_SIZE) * np.prod(self.configs["KNORM_SHAPE"][:2])
+        # knorm_shard_width = nearest_y(self.configs["KNORM_SHAPE"][3] // knorm_num_cores, ttnn.TILE_SIZE)
         # self.configs["KNORM_MEM_CFG"] = ttnn.create_sharded_memory_config(
         #     shape=(knorm_shard_height, knorm_shard_width),
         #     core_grid=knorm_core_grid,
@@ -218,7 +186,10 @@ class ModelConfig:
         # )
 
 
-cfg = ModelConfig(ModelArgs())
+config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
+with open(config_path) as f:
+    model_args = ModelArgs(**json.load(f))
+cfg = ModelConfig(model_args)
 
 
 #################
@@ -297,8 +268,6 @@ def run_rope_impl(
     shape,
     dtype,
     mem_config,
-    max_seq_len,
-    rope_theta,
 ):
     # TODO: Only testing without scaling for now!
 
@@ -308,12 +277,12 @@ def run_rope_impl(
 
     logger.info("Running rope with the following configurations:")
     logger.info(f"Shape: {shape}, Dtype: {dtype}, Memory Config: {mem_config}")
-    logger.info(f"Max Seq Len: {max_seq_len}, Rope Theta: {rope_theta}")
+    logger.info(f"Max Seq Len: {cfg.args.max_seq_len}, Rope Theta: {cfg.args.rope_theta}")
 
     #################
     ### Torch
     #################
-    position_ids = torch.randint(0, max_seq_len, (bsz,))
+    position_ids = torch.randint(0, cfg.args.max_seq_len, (bsz,))
     input_torch = torch.randn(shape).float()
     freqs_cis = precompute_freqs_cis(cfg.args)[position_ids, :]
     out_torch = apply_rotary_emb(input_torch, freqs_cis)
@@ -324,12 +293,7 @@ def run_rope_impl(
     rope_setup = RotarySetup(
         device=device,
         batch_size=bsz,
-        head_dim=head_dim,
-        max_seq_len=max_seq_len,
-        rope_theta=rope_theta,
-        scale_factor=None,
-        orig_context_len=None,
-        datatype=dtype,
+        reference_args=cfg.args,
     )
 
     tt_cos, tt_sin = rope_setup.get_rot_mats(position_ids)
@@ -370,9 +334,9 @@ def run_update_cache_impl(
     dtype,
     mem_config,
     cache_dtype,
-    max_seq_len,
 ):
     layout = ttnn.TILE_LAYOUT
+    max_seq_len = cfg.args.max_seq_len
 
     logger.info("Running update cache with the following configurations:")
     logger.info(f"Shape: {shape}, Dtype: {dtype}, Memory Config: {mem_config}")
@@ -586,17 +550,11 @@ def test_matmuls(
         "k_rope",
     ],
 )
-@pytest.mark.parametrize(
-    "max_seq_len, rope_theta",
-    [(cfg.args.max_seq_len, cfg.args.rope_theta)],
-)
 def test_ropes(
     device,
     shape,
     dtype,
     mem_config,
-    max_seq_len,
-    rope_theta,
     use_program_cache,
     function_level_defaults,
     reset_seeds,
@@ -606,8 +564,6 @@ def test_ropes(
         shape=shape,
         dtype=dtype,
         mem_config=mem_config,
-        max_seq_len=max_seq_len,
-        rope_theta=rope_theta,
     )
 
 
@@ -623,19 +579,12 @@ def test_ropes(
     ],
     ids=["kvpe"],
 )
-@pytest.mark.parametrize(
-    "max_seq_len",
-    [
-        cfg.args.max_seq_len,
-    ],
-)
 def test_update_caches(
     device,
     shape,
     dtype,
     mem_config,
     cache_dtype,
-    max_seq_len,
     use_program_cache,
     function_level_defaults,
     reset_seeds,
@@ -646,7 +595,6 @@ def test_update_caches(
         dtype=dtype,
         mem_config=mem_config,
         cache_dtype=cache_dtype,
-        max_seq_len=max_seq_len,
     )
 
 
