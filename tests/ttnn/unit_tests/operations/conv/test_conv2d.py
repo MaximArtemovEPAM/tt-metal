@@ -190,6 +190,7 @@ def test_conv_dram(
         packer_l1_acc=packer_l1_acc,
         preprocess_weights_on_device=False,
         input_layout=input_layout,
+        output_layout=input_layout,
         run_twice=True,
         fast_compare=True,
         slice_config=ttnn.Conv2dSliceConfig(
