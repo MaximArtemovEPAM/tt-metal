@@ -259,6 +259,16 @@ jobs:
           ClangBuildAnalyzer --all build capture.bin
           ClangBuildAnalyzer --analyze capture.bin
 
+      - name: Compile docs
+        id: compile-docs
+        shell: bash
+        run: |
+          set +e
+          cd docs
+          make clean
+          make html
+          make server
+
       - name: 📦 Package
         run: |
           cmake --build build --target package

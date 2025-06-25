@@ -18,6 +18,12 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Echo!!!
+      id: echo-script
+      shell: bash
+      run: |
+        set +e
+        python3 ${GITHUB_ACTION_PATH}/echo.py 1 2 3 abc
     - uses: actions/download-artifact@v4
       if: ${{ inputs.is_profiler == 'false' }}
       with:
