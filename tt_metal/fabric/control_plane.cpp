@@ -263,7 +263,7 @@ std::optional<LocalMeshBinding> ControlPlane::initialize_local_mesh_binding() {
     if (mesh_id_str == nullptr || host_rank_str == nullptr) {
         return std::nullopt;
     }
-
+    
     // Requires LocalMeshBinding to be valid to continue since detected in the environment
     auto local_mesh_binding = LocalMeshBinding{
         .mesh_id = MeshId{std::stoi(mesh_id_str)},
@@ -278,6 +278,7 @@ std::optional<LocalMeshBinding> ControlPlane::initialize_local_mesh_binding() {
     }
 
     // Validate host rank (only if mesh_id is valid)
+
     const auto& host_ranks = this->routing_table_generator_->mesh_graph->get_host_ranks(local_mesh_binding.mesh_id);
     bool is_valid_host_rank = std::find_if(host_ranks.begin(), host_ranks.end(), [&](const auto& coord_rank_pair) {
         return coord_rank_pair.value() == local_mesh_binding.host_rank;
@@ -291,15 +292,8 @@ std::optional<LocalMeshBinding> ControlPlane::initialize_local_mesh_binding() {
 }
 
 ControlPlane::ControlPlane(const std::string& mesh_graph_desc_file) {
-    int mesh_id_env = tt::parse_env("TT_METAL_MESH_ID", -1);
-    int host_rank_id_env = tt::parse_env("TT_METAL_HOST_RANK_ID", -1);
-    TT_FATAL(
-        !((mesh_id_env == -1) ^ (host_rank_id_env == -1)),
-        "TT_METAL_MESH_ID and TT_METAL_HOST_RANK_ID must both be simulteaneously set or unset");
-
-    this->local_mesh_binding_ = this->initialize_local_mesh_binding();
     this->routing_table_generator_ = std::make_unique<RoutingTableGenerator>(mesh_graph_desc_file);
-
+    this->local_mesh_binding_ = this->initialize_local_mesh_binding();
     // Printing, only enabled with log_debug
     this->routing_table_generator_->mesh_graph->print_connectivity();
     // Printing, only enabled with log_debug
@@ -317,14 +311,8 @@ ControlPlane::ControlPlane(const std::string& mesh_graph_desc_file) {
 ControlPlane::ControlPlane(
     const std::string& mesh_graph_desc_file,
     const std::map<FabricNodeId, chip_id_t>& logical_mesh_chip_id_to_physical_chip_id_mapping) {
-    int mesh_id_env = tt::parse_env("TT_METAL_MESH_ID", -1);
-    int host_rank_id_env = tt::parse_env("TT_METAL_HOST_RANK_ID", -1);
-    TT_FATAL(
-        !((mesh_id_env == -1) ^ (host_rank_id_env == -1)),
-        "TT_METAL_MESH_ID and TT_METAL_HOST_RANK_ID must both be simulteaneously set or unset");
-
-    this->local_mesh_binding_ = this->initialize_local_mesh_binding();
     this->routing_table_generator_ = std::make_unique<RoutingTableGenerator>(mesh_graph_desc_file);
+    this->local_mesh_binding_ = this->initialize_local_mesh_binding();
     // Printing, only enabled with log_debug
     this->routing_table_generator_->mesh_graph->print_connectivity();
     // Printing, only enabled with log_debug
