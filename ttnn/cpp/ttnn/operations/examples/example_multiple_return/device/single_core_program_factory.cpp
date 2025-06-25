@@ -4,6 +4,7 @@
 
 #include "example_multiple_return_device_operation.hpp"
 #include <tt-metalium/work_split.hpp>
+#include <iostream>
 
 namespace ttnn::operations::examples {
 ExampleMultipleReturnDeviceOperation::SingleCore::cached_program_t
@@ -11,6 +12,9 @@ ExampleMultipleReturnDeviceOperation::SingleCore::create(
     const operation_attributes_t& operation_attributes,
     const tensor_args_t& tensor_args,
     tensor_return_value_t& tensor_return_value) {
+    std::cout << "*********************" << std::endl;
+    std::cout << "ttnn/cpp/ttnn/operations/examples/example_multiple_return/device/single_core_program_factory.cpp"
+              << std::endl;
     using namespace tt;
     using namespace tt::tt_metal;
 
@@ -74,12 +78,16 @@ ExampleMultipleReturnDeviceOperation::SingleCore::create(
         all_cores,
         tt::tt_metal::WriterDataMovementConfig());
 
+    std::map<string, string> compute_defines;
+    compute_defines["UNOPS"] = std::to_string(std::getenv("UNOPS") ? std::stoi(std::getenv("UNOPS")) : 0);
+    compute_defines["MNOPS"] = std::to_string(std::getenv("MNOPS") ? std::stoi(std::getenv("MNOPS")) : 0);
+    compute_defines["PNOPS"] = std::to_string(std::getenv("PNOPS") ? std::stoi(std::getenv("PNOPS")) : 0);
     bool math_approx_mode = false;
     auto eltwise_unary_kernel_group_1_id = tt::tt_metal::CreateKernel(
         program,
         "ttnn/cpp/ttnn/operations/examples/example_multiple_return/device/kernels/compute/eltwise_sfpu.cpp",
         core_group_1,
-        tt::tt_metal::ComputeConfig{.math_fidelity = MathFidelity::HiFi4, .math_approx_mode = math_approx_mode});
+        tt::tt_metal::ComputeConfig{.math_fidelity = MathFidelity::HiFi4, .math_approx_mode = math_approx_mode, .defines = compute_defines});
 
     for (uint32_t i = 0, num_tiles_written = 0; i < num_cores; i++) {
         CoreCoord core = {i / num_cores_y, i % num_cores_y};

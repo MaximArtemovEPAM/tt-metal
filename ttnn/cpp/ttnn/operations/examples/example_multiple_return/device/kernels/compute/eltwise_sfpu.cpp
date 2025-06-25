@@ -23,6 +23,29 @@ inline bool dummy_compare(std::uint32_t old_operand, std::uint32_t new_operand) 
            (unpack_dst_format[old_operand] != unpack_dst_format[new_operand]);
 }
 
+template <const int n>
+inline void add_nops() {
+    //DPRINT << "NOPS " << n << ENDL();
+    for (int i = 0; i < n; i++) {
+        TTI_NOP;
+    }
+}
+
+template <const int U, const int M, const int P>
+inline void add_trisc_nops() {
+    if constexpr (U) {
+        UNPACK(add_nops<U>());
+    }
+
+    if constexpr (M) {
+        MATH(add_nops<M>());
+    }
+
+    if constexpr (P) {
+        PACK(add_nops<P>());
+    }
+}
+
 namespace NAMESPACE {
 void MAIN {
     // Circular Buffers
@@ -50,6 +73,8 @@ void MAIN {
         cb_srca = cb_in;
         cb_srcb = cb_other;
     }
+
+    add_trisc_nops<UNOPS, MNOPS, PNOPS>();
 
     mul_tiles_init(cb_in, cb_other);
     mul_tiles(cb_in, cb_other, 0, 0, 0);
