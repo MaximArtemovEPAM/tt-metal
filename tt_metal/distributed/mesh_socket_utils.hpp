@@ -54,9 +54,4 @@ SocketPeerDescriptor receive_and_verify_descriptor_from_peer(
     SocketEndpoint socket_endpoint_type,
     std::shared_ptr<multihost::DistributedContext> context);
 
-//  =============== Additional utility functions  ===============
-
-// Given a MeshDevice and a logical device coordinate, determine the device's physical mesh id
-uint32_t get_physical_mesh_id(const MeshDevice* mesh_device, const MeshCoordinate& coord);
-
 }  // namespace tt::tt_metal::distributed
