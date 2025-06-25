@@ -81,6 +81,7 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm already performs a gather
         if self.args.is_multichip and not self.args.is_distributed_norm(mode):
+            print("start distributed_norm 84")
             use_all_gather_async_minimal_interleaved = not x.is_sharded() and x.layout == ttnn.TILE_LAYOUT
             if use_all_gather_async_minimal_interleaved:
                 ag_input_dtype = x.dtype
@@ -116,6 +117,7 @@ class DistributedNorm(LightweightModule):
                     topology=self.args.ccl_topology(),
                     subdevice_id=self.worker_sub_device_id,
                 )
+            print("end distributed_norm 84")
         else:
             x = ttnn.to_memory_config(x, input_mem_cfg)
 
@@ -123,6 +125,7 @@ class DistributedNorm(LightweightModule):
 
         # Distributed norm requires a gather
         if self.args.is_distributed_norm(mode):
+            print("start distributed_norm 127")
             use_all_gather_async_minimal_interleaved = not x.is_sharded() and x.layout == ttnn.TILE_LAYOUT
             if use_all_gather_async_minimal_interleaved:
                 ag_input_dtype = x.dtype
@@ -158,5 +161,6 @@ class DistributedNorm(LightweightModule):
                     topology=self.args.ccl_topology(),
                     subdevice_id=self.worker_sub_device_id,
                 )
+            print("end distributed_norm 127")
 
         return x

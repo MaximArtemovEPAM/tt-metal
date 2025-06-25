@@ -61,6 +61,15 @@ class Transformer(LightweightModule):
         self.mesh_device.load_sub_device_manager(self.sub_device_manager)
         self.mesh_device.set_sub_device_stall_group(self.sub_device_stall_group)
 
+        self.persistent_output_buffer = ttnn.from_torch(
+            torch.zeros([1, 1, 32, 152064]),
+            device=self.mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat8_b,
+            memory_config=ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.L1),
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
+
         self.embd = Embedding(
             mesh_device=mesh_device,
             args=args,
@@ -356,6 +365,8 @@ class Transformer(LightweightModule):
                     topology=self.args.ccl_topology(),
                 )
             else:
+                print("start model 359")
+                input_mem_cfg = tt_logits.memory_config()
                 use_all_gather_async_minimal_interleaved = (
                     not tt_logits.is_sharded() and tt_logits.layout == ttnn.TILE_LAYOUT
                 )
@@ -364,18 +375,18 @@ class Transformer(LightweightModule):
                     ag_output_shape = list(tt_logits.shape)
                     ag_output_shape[3] *= self.mesh_device.get_num_devices()
 
-                    persistent_output_buffer = ttnn.from_torch(
-                        torch.zeros(ag_output_shape),
-                        device=self.mesh_device,
-                        layout=ttnn.TILE_LAYOUT,
-                        dtype=ag_input_dtype,
-                        memory_config=input_mem_cfg,
-                        mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
-                    )
+                    # persistent_output_buffer = ttnn.from_torch(
+                    #     torch.zeros(ag_output_shape),
+                    #     device=self.mesh_device,
+                    #     layout=ttnn.TILE_LAYOUT,
+                    #     dtype=ag_input_dtype,
+                    #     memory_config=input_mem_cfg,
+                    #     mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+                    # )
 
                     tt_logits = ttnn.experimental.all_gather_async(
                         tt_logits,
-                        persistent_output_buffer=persistent_output_buffer,
+                        persistent_output_buffer=self.persistent_output_buffer,
                         dim=3,
                         multi_device_global_semaphore=self.multi_device_global_semaphore_handles[:2],
                         num_links=1,
@@ -393,6 +404,7 @@ class Transformer(LightweightModule):
                         topology=self.args.ccl_topology(),
                         subdevice_id=self.worker_sub_device_id,
                     )
+                print("end model 359")
 
         tt_logits = ttnn.untilize(tt_logits, use_multicore=True)
 
@@ -454,7 +466,6 @@ class Transformer(LightweightModule):
 
         # Output norm
         x = self.norm(x, mode=mode)
-
         if mode == "prefill" and self.model_config["LM_HEAD_INPUT_MEMCFG"].is_sharded():
             x = ttnn.interleaved_to_sharded(x, self.model_config["LM_HEAD_INPUT_MEMCFG"])
 

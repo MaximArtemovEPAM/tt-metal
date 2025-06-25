@@ -153,6 +153,7 @@ class RMSNorm(LightweightModule):
         tt_stats = ttnn.rms_norm_pre_all_gather(inp, compute_kernel_config=compute_kernel_config, dtype=ttnn.bfloat16)
 
         # AllGather stats
+        print("start rmsnorm 156")
         use_all_gather_async_minimal_interleaved = not tt_stats.is_sharded() and tt_stats.layout == ttnn.TILE_LAYOUT
         if use_all_gather_async_minimal_interleaved:
             ag_input_dtype = tt_stats.dtype
@@ -188,6 +189,7 @@ class RMSNorm(LightweightModule):
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 subdevice_id=self.worker_sub_device_id,
             )
+        print("end rmsnorm 156")
 
         # Run distributed rmsnorm part 2
         tt_out = ttnn.rms_norm_post_all_gather(
