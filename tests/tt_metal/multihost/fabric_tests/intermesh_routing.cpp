@@ -704,22 +704,30 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshMulticast) {
     }
 }
 
-// Uncomment this to add more Mcast tests along different directions
+TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshSouthMulticast) {
+    std::vector<FabricNodeId> mcast_req_nodes = {FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 1)};
+    std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 0), FabricNodeId(MeshId{1}, 1)};
+    std::vector<McastRoutingInfo> routing_info = {
+        McastRoutingInfo{.mcast_dir = RoutingDirection::S, .num_mcast_hops = 1}};
+    std::vector<std::vector<FabricNodeId>> mcast_group_node_ids = {
+        {FabricNodeId(MeshId{1}, 2)}, {FabricNodeId(MeshId{1}, 3)}};
+    for (uint32_t i = 0; i < 500; i++) {
+        InterMeshLineMcast(
+            this, mcast_req_nodes[i % 2], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
+    }
+}
 
-// TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshMulticast) {
-//     std::vector<FabricNodeId> mcast_req_nodes = {
-//         FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 1), FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0},
-//         1)};
-//     std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 0), FabricNodeId(MeshId{1}, 1)};
-//     std::vector<McastRoutingInfo> routing_info = {
-//         McastRoutingInfo{.mcast_dir = RoutingDirection::S, .num_mcast_hops = 1}};
-//     std::vector<std::vector<FabricNodeId>> mcast_group_node_ids = {
-//         {FabricNodeId(MeshId{1}, 2)}, {FabricNodeId(MeshId{1}, 3)}};
-//     for (uint32_t i = 0; i < 500; i++) {
-//         InterMeshLineMcast(
-//             this, mcast_req_nodes[i % 4], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
-//     }
-// }
-
+TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshNorthMulticast) {
+    std::vector<FabricNodeId> mcast_req_nodes = {FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 3)};
+    std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 3)};
+    std::vector<McastRoutingInfo> routing_info = {
+        McastRoutingInfo{.mcast_dir = RoutingDirection::N, .num_mcast_hops = 1}};
+    std::vector<std::vector<FabricNodeId>> mcast_group_node_ids = {
+        {FabricNodeId(MeshId{1}, 0)}, {FabricNodeId(MeshId{1}, 1)}};
+    for (uint32_t i = 0; i < 500; i++) {
+        InterMeshLineMcast(
+            this, mcast_req_nodes[i % 2], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
+    }
+}
 }  // namespace fabric_router_tests
 }  // namespace tt::tt_fabric
