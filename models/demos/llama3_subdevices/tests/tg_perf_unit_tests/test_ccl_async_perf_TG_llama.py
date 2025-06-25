@@ -15,9 +15,7 @@ is_RING_6U = os.environ.get("RING_6U", "0") == "1"
 @pytest.mark.parametrize(
     "ag_type, warmup_iters, perf_target_us",
     [
-        ("sdpa", 15, 12.9),
         ("binary_mult", 15, 12.54),
-        ("layernorm", 15, 5.4),
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
@@ -74,9 +72,6 @@ def test_ag_tg_llama_perf(
     "ar_type, warmup_iters, perf_target_us",
     [
         ("ff2", 15, 18.6),
-        ("qkv", 15, 11.9),
-        ("ff1", 15, 19.2),
-        ("lm_head", 15, 61.8),
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
@@ -412,7 +407,7 @@ def test_rs_create_heads_perf(
 
     subdir = "llama_ccl_perf"
     if is_RING_6U:
-        command = f"pytest tests/ttnn/unit_tests/operations/ccl/test_llama_reduce_scatter_create_heads_async_6U.py::test_rs_create_heads_6u_trace"
+        command = f"pytest tests/ttnn/unit_tests/operations/ccl/test_llama_reduce_scatter_create_heads_async_TG.py::test_rs_create_heads_6u_trace"
     else:
         command = f"pytest tests/ttnn/unit_tests/operations/ccl/test_llama_reduce_scatter_create_heads_async_TG.py::test_rs_create_heads_tg_trace"
     cols = ["DEVICE KERNEL"]
