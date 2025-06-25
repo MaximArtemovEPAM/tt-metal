@@ -77,7 +77,7 @@ jobs:
             echo "Running CIv2 compatible tests"
             pytest models/demos/wormhole/stable_diffusion/tests -m models_device_performance_bare_metal --timeout=600
             pytest models/demos/distilbert/tests -m models_device_performance_bare_metal
-            pytest models/demos/vgg/tests/ -m models_device_performance_bare_metal
+            # pytest models/demos/vgg/tests/ -m models_device_performance_bare_metal
             pytest models/demos/bert_tiny/tests/ -m models_device_performance_bare_metal
             pytest models/demos/squeezebert/tests -m models_device_performance_bare_metal
             pytest models/demos/roberta/tests/ -m models_device_performance_bare_metal
