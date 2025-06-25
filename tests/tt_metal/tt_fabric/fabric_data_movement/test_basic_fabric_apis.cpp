@@ -792,7 +792,6 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, TestCustomUnicastRaw) {
 }
 
 TEST_F(Custom2x4Fabric2DDynamicFixture, TestCustomMultiMeshMcast) {
-
     std::vector<FabricNodeId> mcast_req_nodes = {
         FabricNodeId(MeshId{0}, 1), FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 2)};
     std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 0)};
@@ -809,7 +808,7 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, TestCustomMultiMeshMcast) {
 INSTANTIATE_TEST_SUITE_P(
     T3kCustomMeshGraphFabric2DDynamicTests,
     T3kCustomMeshGraphFabric2DDynamicFixture,
-    ::testing::ValuesIn(t3k_disjoint_mesh_descriptor_chip_mappings));
+    ::testing::ValuesIn(t3k_mesh_descriptor_chip_mappings));
 
 TEST_F(Fabric2DDynamicFixture, TestUnicastConnAPI) { RunTestUnicastConnAPI(this, 1); }
 
