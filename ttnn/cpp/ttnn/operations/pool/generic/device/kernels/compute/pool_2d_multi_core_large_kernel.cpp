@@ -67,7 +67,7 @@ template <
     bool neginf_srca_maxpool,
     bool zero_srca_avgpool>
 inline void reduce_h_fused(const uint32_t interm_cb_id, const uint32_t in_scalar_cb_id, const uint32_t out_cb_id) {
-    constexpr uint32_t num_faces_in_input_tile = is_partial_tile ? 1 : max_rows_for_reduction < 32 ? 2 : 4;
+    constexpr uint32_t num_faces_in_input_tile = max_rows_for_reduction < 32 ? 2 : 4;
     constexpr uint32_t num_faces_in_output_tile = is_partial_tile ? 1 : 2;
     constexpr uint32_t num_out_rows = 1;
 
@@ -120,10 +120,11 @@ void MAIN {
     constexpr uint32_t in_one_cb_id = get_compile_time_arg_val(16);
     constexpr bool one_scalar_per_core = get_compile_time_arg_val(17)
 
-    constexpr bool is_partial_tile = in_c < 32;
-    static_assert((!is_partial_tile || (in_c == 16)), "Partial tile must have c_dim 16");
-    constexpr uint32_t num_faces_in_input_tile = is_partial_tile ? 1 : max_rows_for_reduction < 32 ? 2 : 4;
-    constexpr uint32_t num_faces_in_output_tile = is_partial_tile ? 1 : 2;
+        constexpr bool last_tile_is_partial = in_c % 32 != 0 && in_c % 32 < 16;
+    // static_assert((!is_partial_tile || (in_c == 16)), "Partial tile must have c_dim 16");
+    constexpr uint32_t num_faces_in_input_tile = max_rows_for_reduction < 32 ? 2 : 4;
+    constexpr uint32_t num_faces_in_output_tile = 2;
+    constexpr uint32_t num_faces_in_last_output_tile = is_partial_tile ? 1 : 2;
     constexpr uint32_t num_out_rows = 1;
 
     constexpr uint32_t MAX_TILES_PER_REDUCTION = 8;
@@ -180,12 +181,7 @@ void MAIN {
             // perform the final reduction over the first N - 1 whole chunks // Reduction of final 2 sticks.
             pack_untilize_uninit(out_cb_id);
             pack_untilize_dst_init_short<max_tiles_per_iter>(out_cb_id, num_out_rows, num_faces_in_output_tile);
-            reduce_h_fused<
-                max_tiles_per_iter,
-                is_partial_tile,
-                max_rows_for_reduction,
-                neginf_srca_maxpool,
-                zero_srca_avgpool>(
+            reduce_h_fused<max_tiles_per_iter, false, max_rows_for_reduction, neginf_srca_maxpool, zero_srca_avgpool>(
                 interm_cb_id, REDUCE_OP == PoolType::MAX ? in_scalar_cb_id_0 : in_one_cb_id, out_cb_id);
         }
 
@@ -209,12 +205,45 @@ void MAIN {
         // perform the reduction over the either whole or partial chunk N
         pack_untilize_uninit(out_cb_id);
         pack_untilize_dst_init_short<partial_iter_output_tiles>(out_cb_id, num_out_rows, num_faces_in_output_tile);
-        reduce_h_fused<
-            partial_iter_output_tiles,
-            is_partial_tile,
-            max_rows_for_reduction,
-            neginf_srca_maxpool,
-            zero_srca_avgpool>(interm_cb_id, REDUCE_OP == PoolType::MAX ? in_scalar_cb_id_0 : in_one_cb_id, out_cb_id);
+        if (last_tile_is_partial) {
+            DPRINT << "Last tile is partial" << ENDL();
+            if (partial_iter_output_tiles > 1) {
+                DPRINT << "There are some tiles before the partial" << ENDL();
+                DPRINT << "There are some tiles before the partial faces " << num_faces_in_tile << ENDL();
+                // pack_untilize_dst_init_short<partial_iter_output_tiles - 1>(out_cb_id, num_out_rows,
+                // num_faces_in_tile);
+                //  perform the reduction over the either whole or partial chunk N
+                DPRINT << "in_blocks_c: " << partial_iter_output_tiles << ENDL();
+                reduce_h_fused<
+                    partial_iter_output_tiles - 1,
+                    false,
+                    split_reader,
+                    face_r_dim,
+                    num_faces_in_tile,
+                    neginf_srca_maxpool,
+                    zero_srca_avgpool>(in_cb_id_0, in_cb_id_1, curr_scalar_cb_id, i, out_cb_id);
+            }
+            DPRINT << "num_faces_in_last_tile: " << num_faces_in_last_tile << ENDL();
+            reduce_h_fused<
+                1,
+                last_tile_is_partial,
+                split_reader,
+                face_r_dim,
+                num_faces_in_tile,
+                neginf_srca_maxpool,
+                zero_srca_avgpool>(in_cb_id_0, in_cb_id_1, curr_scalar_cb_id, i, out_cb_id);
+        } else {
+            // perform the reduction over the either whole or partial chunk N
+            DPRINT << "in_blocks_c: " << partial_iter_output_tiles << ENDL();
+            reduce_h_fused<
+                partial_iter_output_tiles,
+                false,
+                split_reader,
+                face_r_dim,
+                num_faces_in_tile,
+                neginf_srca_maxpool,
+                zero_srca_avgpool>(in_cb_id_0, in_cb_id_1, curr_scalar_cb_id, i, out_cb_id);
+        }
         if constexpr (!one_scalar_per_core) {
             cb_pop_front(curr_scalar_cb_id, 1);
         }

@@ -100,8 +100,6 @@ def run_avg_pool2d(
     ttnn_output = ttnn.to_torch(ttnn_output)
 
     ## Assertion
-    print("Torch shape ", torch_output.shape)
-    print("TTNN shape ", ttnn_output.shape)
     assert_with_pcc(torch_output, ttnn_output, 0.99)
     allclose = torch.allclose(ttnn_output, torch_output, rtol=0.02)
     assert allclose, " Reference and output tensor are not close"
