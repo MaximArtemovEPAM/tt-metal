@@ -13,7 +13,6 @@ namespace ttnn::operations::transformer::detail {
 tt::tt_metal::operation::ProgramWithCallbacks flash_mla_prefill_multi_core(
     const Tensor& input_tensor_q,
     const Tensor& input_tensor_k,
-    const Tensor& input_tensor_v,
     const Tensor& output_tensor,
     const std::optional<const Tensor>& attn_mask,
     const std::optional<const Tensor>& page_table,

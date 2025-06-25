@@ -23,7 +23,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
         Args:
             input_tensor_q (ttnn.Tensor): the input tensor.          [b x nqh x s x dh]
             input_tensor_k (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
-            input_tensor_v (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
 
         Keyword args:
             attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x s]. Head broadcasting is implied.
@@ -49,7 +48,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
             [](const OperationType& self,
                const ttnn::Tensor& input_tensor_q,
                const ttnn::Tensor& input_tensor_k,
-               const ttnn::Tensor& input_tensor_v,
                std::optional<ttnn::Tensor> attn_mask,
                bool is_causal,
                std::optional<float> scale,
@@ -61,7 +59,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
                     queue_id,
                     input_tensor_q,
                     input_tensor_k,
-                    input_tensor_v,
                     attn_mask,
                     is_causal,
                     scale,
@@ -71,7 +68,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
             },
             py::arg("input_tensor_q").noconvert(),
             py::arg("input_tensor_k").noconvert(),
-            py::arg("input_tensor_v").noconvert(),
             py::kw_only(),
             py::arg("attn_mask").noconvert() = std::nullopt,
             py::arg("is_causal").noconvert() = true,
@@ -92,7 +88,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
         Args:
             input_tensor_q (ttnn.Tensor): the input tensor.          [b x nqh x s x dh]
             input_tensor_k (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
-            input_tensor_v (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
             page_table_tensor (ttnn.Tensor): the page table tensor.  [b x num_pages]
             chunk_start_idx (int): Absolute position in the sequence where this chunk starts.
 
@@ -117,7 +112,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
             [](const ChunkedOperationType& self,
                const ttnn::Tensor& input_tensor_q,
                const ttnn::Tensor& input_tensor_k,
-               const ttnn::Tensor& input_tensor_v,
                const ttnn::Tensor& page_table_tensor,
                int64_t chunk_start_idx,
                std::optional<float> scale,
@@ -129,7 +123,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
                     queue_id,
                     input_tensor_q,
                     input_tensor_k,
-                    input_tensor_v,
                     page_table_tensor,
                     chunk_start_idx,
                     scale,
@@ -139,7 +132,6 @@ void py_bind_flash_mla_prefill(py::module& module) {
             },
             py::arg("input_tensor_q").noconvert(),
             py::arg("input_tensor_k").noconvert(),
-            py::arg("input_tensor_v").noconvert(),
             py::arg("page_table_tensor").noconvert(),
             py::arg("chunk_start_idx"),
             py::kw_only(),
@@ -163,11 +155,9 @@ void py_bind_flash_mla_prefill(py::module& module) {
         Args:
             input_tensor_q (ttnn.Tensor): Original queries  [b x nh x N x dh].
             input_tensor_k (ttnn.Tensor): Original keys     [b x nh x N x dh].
-            input_tensor_v (ttnn.Tensor): Original values   [b x nh x N x dh].
 
             joint_tensor_q (ttnn.Tensor): Joint queries     [b x nh x L x dh].
             joint_tensor_k (ttnn.Tensor): Joint keys        [b x nh x L x dh].
-            joint_tensor_v (ttnn.Tensor): Joint values      [b x nh x L x dh].
 
         Keyword args:
             joint_strategy (str): Strategy for joint attention. Must be "rear".
@@ -192,10 +182,8 @@ void py_bind_flash_mla_prefill(py::module& module) {
             [](const JointOperationType& self,
                const ttnn::Tensor& input_tensor_q,
                const ttnn::Tensor& input_tensor_k,
-               const ttnn::Tensor& input_tensor_v,
                const ttnn::Tensor& joint_tensor_q,
                const ttnn::Tensor& joint_tensor_k,
-               const ttnn::Tensor& joint_tensor_v,
                const std::string& joint_strategy,
                SDPAProgramConfig program_config,
                std::optional<float> scale,
@@ -205,10 +193,8 @@ void py_bind_flash_mla_prefill(py::module& module) {
                     queue_id,
                     input_tensor_q,
                     input_tensor_k,
-                    input_tensor_v,
                     joint_tensor_q,
                     joint_tensor_k,
-                    joint_tensor_v,
                     joint_strategy,
                     program_config,
                     scale,
@@ -217,10 +203,8 @@ void py_bind_flash_mla_prefill(py::module& module) {
             },
             py::arg("input_tensor_q").noconvert(),
             py::arg("input_tensor_k").noconvert(),
-            py::arg("input_tensor_v").noconvert(),
             py::arg("joint_tensor_q").noconvert(),
             py::arg("joint_tensor_k").noconvert(),
-            py::arg("joint_tensor_v").noconvert(),
             py::kw_only(),
             py::arg("joint_strategy"),
             py::arg("program_config").noconvert(),

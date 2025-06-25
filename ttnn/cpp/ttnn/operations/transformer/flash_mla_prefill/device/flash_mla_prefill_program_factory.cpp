@@ -25,7 +25,6 @@ namespace ttnn::operations::transformer::detail {
 operation::ProgramWithCallbacks flash_mla_prefill_multi_core(
     const Tensor& input_tensor_q,
     const Tensor& input_tensor_k,
-    const Tensor& input_tensor_v,
     const Tensor& output_tensor,
     const std::optional<const Tensor>& attn_mask,
     const std::optional<const Tensor>& page_table,
@@ -152,7 +151,7 @@ operation::ProgramWithCallbacks flash_mla_prefill_multi_core(
 
     auto q_buffer = input_tensor_q.buffer();
     auto k_buffer = input_tensor_k.buffer();
-    auto v_buffer = input_tensor_v.buffer();
+    auto v_buffer = input_tensor_k.buffer();
     auto mask_buffer = attn_mask.has_value() ? attn_mask.value().buffer() : nullptr;
 
     auto out0_buffer = output_tensor.buffer();
@@ -434,7 +433,7 @@ operation::ProgramWithCallbacks flash_mla_prefill_multi_core(
 
     tt::DataFormat q_df = tt::tt_metal::datatype_to_dataformat_converter(input_tensor_q.dtype());
     tt::DataFormat k_df = tt::tt_metal::datatype_to_dataformat_converter(input_tensor_k.dtype());
-    tt::DataFormat v_df = tt::tt_metal::datatype_to_dataformat_converter(input_tensor_v.dtype());
+    tt::DataFormat v_df = tt::tt_metal::datatype_to_dataformat_converter(input_tensor_k.dtype());
     tt::DataFormat mask_df = attn_mask.has_value()
                                  ? tt::tt_metal::datatype_to_dataformat_converter(attn_mask.value().dtype())
                                  : tt::DataFormat::Bfp4_b;
@@ -635,7 +634,7 @@ operation::ProgramWithCallbacks flash_mla_prefill_multi_core(
             const std::vector<Tensor>& output_tensors) {
             auto q_buffer = input_tensors.at(0).buffer();
             auto k_buffer = input_tensors.at(1).buffer();
-            auto v_buffer = input_tensors.at(2).buffer();
+            auto v_buffer = input_tensors.at(1).buffer();
             auto mask_buffer =
                 optional_input_tensors.at(0).has_value() ? optional_input_tensors.at(0).value().buffer() : nullptr;
 

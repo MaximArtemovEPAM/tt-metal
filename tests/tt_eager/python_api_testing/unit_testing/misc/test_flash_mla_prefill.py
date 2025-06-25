@@ -28,11 +28,14 @@ def nearest_pow_2(x):
     return 1 << power
 
 
-def scaled_dot_product_attention_reference(Q, K, V, scale, is_causal=True):
+def scaled_dot_product_attention_reference(Q, K, scale, is_causal=True):
     """
     Full-sequence causal SDPA reference.
     Q: (B, nh, S, d_qk), K/V: (B, nkv, S, d)
     """
+
+    V = K
+
     b, nh, S, d_qk = Q.shape
     _, nkv, _, d_v = V.shape
     # Expand KV to match Q heads
@@ -72,7 +75,6 @@ def run_flash_mla_prefill_impl(
     ######################
     q = torch.randn(batch, nh, seq_len, kv_lora_rank + d_rope).float()  # (B, H, S (1 for decode), D)
     k = torch.randn(batch, nkv, seq_len, kv_lora_rank + d_rope).float()  # (B, H, S, D)
-    v = torch.randn(batch, nkv, seq_len, kv_lora_rank + d_rope).float()  # (B, H, S, D)
 
     ######################
     ### TT Setup
@@ -116,19 +118,11 @@ def run_flash_mla_prefill_impl(
         layout=ttnn.TILE_LAYOUT,
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
-    tt_v = ttnn.from_torch(
-        v,  # (B, H, S, D)
-        device=device,
-        dtype=dtype,
-        layout=ttnn.TILE_LAYOUT,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-    )
 
-    logger.info(f"TT Q shape: {tt_q.shape}, TT K shape: {tt_k.shape}, TT V shape: {tt_v.shape}")
+    logger.info(f"TT Q shape: {tt_q.shape}, TT K shape: {tt_k.shape}")
     tt_out = ttnn.transformer.flash_mla_prefill(
         tt_q,
         tt_k,
-        tt_v,
         scale=scale,
         program_config=sdpa_program_config,
         compute_kernel_config=compute_kernel_config,
@@ -147,7 +141,6 @@ def run_flash_mla_prefill_impl(
     out_t = scaled_dot_product_attention_reference(
         q,
         k,
-        v,
         scale,
         is_causal=True,
     )
