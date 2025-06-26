@@ -9,10 +9,8 @@
 #include "debug/dprint_pages.h"
 #include "debug/dprint_tensix.h"
 
-uint32_t A = 12;
-uint32_t B = 12;
-uint32_t CX = 12;
-uint32_t DX = 12;
+// #define DEB
+#define EN
 
 constexpr std::uint32_t onetile = 1;
 
@@ -60,26 +58,23 @@ void MAIN {
     cb_wait_front(cb_in, onetile);
     cb_wait_front(cb_other, onetile);
 
-    UNPACK(tt::compute::common::print_full_tile(cb_out, 0, false);)
-
-    {
-        if (CX == 256 || DX == 256) {
-            add_nops_r(A);
-        } else {
-            add_nops_r(B);
-        }
-    }
+#ifdef DEB
+    UNPACK(tt::compute::common::print_full_tile(cb_in, 0, false);)
+    UNPACK(tt::compute::common::print_full_tile(cb_other, 0, false);)
+#endif
 
     add_trisc_nops<UNOPS, MNOPS, PNOPS>();
+
+#ifdef DEB
     dprint_tensix_dest_reg(0);
+#endif
 
     mul_tiles_init(cb_in, cb_other);
     mul_tiles(cb_in, cb_other, 0, 0, 0);
 
-    cb_pop_front(cb_in, onetile);
-    cb_pop_front(cb_other, onetile);
-
+#ifdef DEB
     dprint_tensix_dest_reg(0);
+#endif
 
     tile_regs_commit();
 
@@ -91,6 +86,15 @@ void MAIN {
 
     cb_wait_front(cb_out, 1);
 
+#ifdef EN
+    UNPACK(tt::compute::common::print_full_tile(cb_in, 0, false);)
+    UNPACK(tt::compute::common::print_full_tile(cb_other, 0, false);)
+
     UNPACK(tt::compute::common::print_full_tile(cb_out, 0, false);)
+    UNPACK(DPRINT << "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^" << ENDL());
+#endif
+
+    cb_pop_front(cb_in, onetile);
+    cb_pop_front(cb_other, onetile);
 }
 }  // namespace NAMESPACE
