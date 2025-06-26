@@ -30,7 +30,8 @@ from .tt.parallel_config import create_dit_parallel_config, ParallelConfig
         #        ("medium", 512, 512, 4.5, 40, 333, 1024),
         #        ("medium", 1024, 1024, 4.5, 40, 333, 4096),
         #        ("large", 512, 512, 3.5, 28, 333, 1024),
-        ("large", 1024, 1024, 3.5, 28),  # , 333, 4096),
+        # ("large", 1024, 1024, 3.5, 28),  # , 333, 4096),
+        ("medium", 1024, 1024, 4.5, 40),
     ],
 )
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 8192, "trace_region_size": 15210496}], indirect=True)

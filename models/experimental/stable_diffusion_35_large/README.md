@@ -32,5 +32,5 @@ pytest models/experimental/stable_diffusion_35_large/tests
 The demo is run using the following command:
 
 ```sh
-pytest models/experimental/stable_diffusion_35_large/demo.py
+pytest models/experimental/stable_diffusion_35_large/fun_demo.py
 ```
