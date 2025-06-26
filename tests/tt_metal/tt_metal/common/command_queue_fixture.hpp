@@ -128,6 +128,75 @@ protected:
     std::map<int, std::shared_ptr<distributed::MeshDevice>> reserved_devices_;
 };
 
+class MeshCommandQueueMultiDeviceFixture : public DispatchFixture {
+protected:
+    void SetUp() override {
+        if (!this->validate_dispatch_mode()) {
+            GTEST_SKIP() << "invalid dispatch mode for MeshCommandQueueMultiDeviceFixture";
+        }
+        this->arch_ = tt::get_arch_from_string(tt::test_utils::get_umd_arch_name());
+        this->create_devices();
+    }
+
+    void TearDown() override {
+        for (auto device : reserved_devices_) {
+            device.second->close();
+        }
+    }
+
+    bool validate_dispatch_mode() {
+        this->slow_dispatch_ = false;
+        auto slow_dispatch = getenv("TT_METAL_SLOW_DISPATCH_MODE");
+        if (slow_dispatch) {
+            log_info(tt::LogTest, "This suite can only be run with fast dispatch or TT_METAL_SLOW_DISPATCH_MODE unset");
+            this->slow_dispatch_ = true;
+            return false;
+        }
+        return true;
+    }
+
+    void create_devices(std::size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE) {
+        num_devices_ = tt::tt_metal::GetNumAvailableDevices();
+        if (num_devices_ < 2) {
+            GTEST_SKIP() << "This test requires at least 2 devices, but only " << num_devices_
+                         << " is available. Skipping test.";
+        }
+
+        std::vector<chip_id_t> chip_ids;
+        for (chip_id_t id : tt::tt_metal::MetalContext::instance().get_cluster().all_chip_ids()) {
+            chip_ids.push_back(id);
+        }
+
+        const auto& dispatch_core_config =
+            tt::tt_metal::MetalContext::instance().rtoptions().get_dispatch_core_config();
+        reserved_devices_ = distributed::MeshDevice::create_unit_meshes(
+            chip_ids, DEFAULT_L1_SMALL_SIZE, trace_region_size, 1, dispatch_core_config);
+        for (const auto& [id, device] : reserved_devices_) {
+            devices_.push_back(device);
+        }
+    }
+
+    std::vector<std::shared_ptr<distributed::MeshDevice>> devices_;
+    std::map<chip_id_t, std::shared_ptr<distributed::MeshDevice>> reserved_devices_;
+    size_t num_devices_;
+};
+
+class MeshCommandQueueOnFabricMultiDeviceFixture : public MeshCommandQueueMultiDeviceFixture {
+protected:
+    void SetUp() override {
+        if (tt::get_arch_from_string(tt::test_utils::get_umd_arch_name()) != tt::ARCH::WORMHOLE_B0) {
+            GTEST_SKIP() << "Dispatch on Fabric tests only applicable on Wormhole B0";
+        }
+        tt::tt_metal::MetalContext::instance().rtoptions().set_fd_fabric(true);
+        MeshCommandQueueMultiDeviceFixture::SetUp();
+    }
+
+    void TearDown() override {
+        MeshCommandQueueMultiDeviceFixture::TearDown();
+        tt::tt_metal::MetalContext::instance().rtoptions().set_fd_fabric(false);
+    }
+};
+
 class CommandQueueSingleCardFixture : virtual public DispatchFixture {
 protected:
     void SetUp() override {
