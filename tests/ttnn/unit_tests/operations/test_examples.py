@@ -14,15 +14,17 @@ import ttnn
 def test_example(device):
     torch.manual_seed(0)
 
-    shape = [5 * 32, 32]
+    shape = [2 * 32, 32]
 
     torch_input = torch.ones(shape, dtype=torch.bfloat16) * -1.7014118e38
     torch_other = torch.zeros(shape, dtype=torch.bfloat16) * 0
 
     expected_output = torch_input * torch_other
 
+    magic_num = 26  # (23+)
+
     for x in range(1000):
-        os.environ["UNOPS"] = str(x + 24)
+        os.environ["UNOPS"] = str(x + magic_num)
         print("iter", x)
         tt_input = ttnn.from_torch(torch_input, layout=ttnn.TILE_LAYOUT, device=device)
         tt_other = ttnn.from_torch(torch_other, layout=ttnn.TILE_LAYOUT, device=device)
