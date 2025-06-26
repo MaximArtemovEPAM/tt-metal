@@ -14,7 +14,6 @@ from tests.tt_eager.python_api_testing.sweep_tests.comparison_funcs import (
 import ttnn
 from loguru import logger
 import pytest
-from dataclasses import dataclass
 
 from models.demos.deepseek_v3.tt.rope import RotarySetup
 from models.demos.t3000.llama2_70b.reference.llama.llama31_8b.model import RMSNorm as ReferenceRMSNorm

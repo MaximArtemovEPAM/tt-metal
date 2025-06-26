@@ -104,7 +104,6 @@ class RotarySetup(LightweightModule):
             mesh_mapper=ttnn.ReplicateTensorToMesh(device),
         )
 
-        # TODO: Colman, should this be TILE_SIZE or dim? Why should it be different for prefill and decode?
         prefill_trans_mat_torch = get_rot_transformation_mat()
         self.transformation_mat_prefill = ttnn.from_torch(
             prefill_trans_mat_torch,
@@ -133,22 +132,14 @@ class RotarySetup(LightweightModule):
         pad_size = nearest_32(batch) - batch
         position_idxs = torch.nn.functional.pad(position_idxs, (0, pad_size), "constant", 0)
 
-        if on_host:  # If tensor is on host, don't pass a mesh mapper if single-device
-            rot_idxs = ttnn.as_tensor(
-                position_idxs,
-                dtype=ttnn.uint32,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                mesh_mapper=ttnn.ReplicateTensorToMesh(self.device),
-            )
-        else:  # On device
-            rot_idxs = ttnn.as_tensor(
-                position_idxs,
-                dtype=ttnn.uint32,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                device=self.device,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                mesh_mapper=ttnn.ReplicateTensorToMesh(self.device),
-            )
+        rot_idxs = ttnn.as_tensor(
+            position_idxs,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.device),
+            device=None if on_host else self.device,
+            memory_config=None if on_host else ttnn.DRAM_MEMORY_CONFIG,
+        )
 
         return rot_idxs
 

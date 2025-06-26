@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from models.demos.deepseek_v3.utils.run_config import create_run_config
 
 # Import from local reference files instead of HuggingFace
 from models.demos.deepseek_v3_impl.model import MLA, ModelArgs, precompute_freqs_cis
-from models.utility_functions import comp_pcc
+from models.utility_functions import comp_pcc, get_mesh_device
 
 
 @pytest.fixture
@@ -41,28 +40,19 @@ def hf_config():
 
 @pytest.fixture
 def reference(hf_config, reset_seeds):
-    """Get the actual DeepSeek MLP model using local implementation."""
+    """Get the actual DeepSeek MLA model using local implementation."""
 
     config_path = "models/demos/deepseek_v3_impl/configs/config_671B.json"
     with open(config_path) as f:
         model_args = ModelArgs(**json.load(f))
 
+    model_args.n_heads = hf_config.num_attention_heads
+    model_args.max_seq_len = hf_config.max_seq_len
+
     model = MLA(model_args)
     model.init_weights_with_random()
 
     return model_args, model
-
-
-def get_mesh_device():
-    """Fixture to provide mesh device configuration."""
-    mesh_device = os.environ.get("MESH_DEVICE", "N150")
-    mesh_config = {
-        "N150": (1, 1),
-        "N300": (1, 2),
-        "T3K": (1, 8),
-        "TG": (8, 4),
-    }.get(mesh_device, (1, ttnn.get_num_devices()))
-    return mesh_config
 
 
 # Unit Tests
