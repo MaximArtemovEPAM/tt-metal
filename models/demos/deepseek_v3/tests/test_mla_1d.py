@@ -147,10 +147,15 @@ def test_run_config_creation(reference, hf_config, temp_dir, mesh_device):
         ("decode", 1024, 32),
     ],
 )
+@pytest.mark.parametrize(
+    "check_cache",
+    [True],
+)
 def test_forward_pass(
     mode,
     seq_len,
     batch_size,
+    check_cache,
     reference,
     hf_config,
     temp_dir,
@@ -247,13 +252,40 @@ def test_forward_pass(
     ############################
     ### Validation
     ############################
+    logger.info("Validating MLA 1D output")
+    all_passing = True
     pcc_required = 0.98  # Slightly lower due to bfloat conversions
     passing, pcc_message = comp_pcc(reference_output, tt_output_torch, pcc_required)
+
+    all_passing = all_passing and passing
 
     logger.info(f"Mode: {mode}, Seq len: {seq_len}")
     logger.info(f"PCC: {pcc_message}")
 
-    assert passing, f"MLA output does not meet PCC requirement {pcc_required}: {pcc_message}"
+    if check_cache:
+        logger.info("Checking KVPE cache PCC")
+
+        pcc_required_kvpe = 0.98
+        range_to_check = range(start_pos, start_pos + 1)
+
+        tt_cache = ttnn.to_torch(tt_mla.kvpe_cache).squeeze(1)  # [bsz, max_seq_len, head_dim + rope_head_dim]
+        tt_cache_kv = tt_cache[:, range_to_check, : hf_config.kv_lora_rank]
+        tt_cache_pe = tt_cache[:, range_to_check, hf_config.kv_lora_rank :]
+
+        ref_cache_kv = reference_model.kv_cache[:, range_to_check, :]  # [bsz, _, head_dim]
+        ref_cache_pe = reference_model.pe_cache[:, range_to_check, :]  # [bsz, _, rope_head_dim]
+
+        kv_passing, kv_pcc_message = comp_pcc(ref_cache_kv, tt_cache_kv, pcc_required_kvpe)
+        pe_passing, pe_pcc_message = comp_pcc(ref_cache_pe, tt_cache_pe, pcc_required_kvpe)
+
+        logger.info(f"Cache KV PCC: {kv_pcc_message}")
+        logger.info(f"Cache PE PCC: {pe_pcc_message}")
+
+        all_passing = all_passing and kv_passing and pe_passing
+
+    assert (
+        all_passing
+    ), f"MLA output does not meet PCC requirement {pcc_required} or KVPE Cache PCC requirement {pcc_required_kvpe}"
 
 
 if __name__ == "__main__":
