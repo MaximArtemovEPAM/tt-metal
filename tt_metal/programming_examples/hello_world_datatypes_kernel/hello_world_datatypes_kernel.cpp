@@ -34,7 +34,6 @@ int main() {
     CircularBufferConfig cb_src0_config =
         CircularBufferConfig(buffer_size, {{src0_cb_index, tt::DataFormat::Float16_b}})
             .set_page_size(src0_cb_index, buffer_size);
-    CBHandle cb_src0 = tt_metal::CreateCircularBuffer(program, core, cb_src0_config);
 
     // Configure and Create Data Movement Kernels
 
