@@ -18,6 +18,7 @@ out = torch.sum(torch_input_tensor, dim, keepdim)
 
 Work is distributed along W dimension (i.e. each core iterates over full height)
 
+```
 tiles are read in the N W_skip H W_chunk order
 W_skip(chunk size) represents the number of tile columns whose reading will be intertwined
 H W_chunk represent tiles of the chunk read in row major order
@@ -25,6 +26,7 @@ exmpl. Ht = 3; Wt = 4; row_chunk = 2;
        read order (H, W):
        1. chunk:  1:(0, 0)  2:(0, 1)  3:(1, 0)   4:(1, 1)   5:(2, 0)   6:(2, 1)
        2. chunk:  7:(0, 2)  8:(0, 3)  9:(1, 2)  10:(1, 3)  11:(2, 2)  12:(2, 3)
+```
 
 Vizualization of tiles read order:
 
