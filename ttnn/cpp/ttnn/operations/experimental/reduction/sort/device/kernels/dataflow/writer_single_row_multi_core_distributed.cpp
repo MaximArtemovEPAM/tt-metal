@@ -137,19 +137,16 @@ void kernel_main() {
     constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(14);
     const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(15));
     const uint32_t sem_barrier_addr = get_semaphore(get_compile_time_arg_val(16));
-
-    const uint64_t sem_barrier_coordinator_core_addr =
-        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
-
-    // Only relevant for coordinator core
-    const uint64_t sem_barrier_mcast_addr =
-        get_noc_multicast_addr(start_core_x, start_core_y, end_core_x, end_core_y, sem_barrier_addr);
+    const uint32_t sem_reader_barrier_coordinator_addr = get_semaphore(get_compile_time_arg_val(17));
 
     const uint64_t sem_barrier_coordinator_addr =
-        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
+        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_reader_barrier_coordinator_addr);
+
+    const uint64_t sem_noc_barrier_addr = get_noc_addr(this_core_x, this_core_y, sem_barrier_addr);
 
     sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
     sem_ptr_t sem_self_barrier_ptr = reinterpret_cast<sem_ptr_t>(sem_barrier_addr);
+    sem_ptr_t sem_self_barrier_coordinator_ptr = reinterpret_cast<sem_ptr_t>(sem_reader_barrier_coordinator_addr);
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
@@ -275,13 +272,13 @@ void kernel_main() {
                            << ", sub = " << sub << ", w = " << w << TERM_RESET << ENDL();
                 }  // Wt loop
 
-                sort_noc_barrier(
-                    this_core_id,
-                    coordinator_core_id,
-                    sem_self_barrier_ptr,
-                    sem_barrier_coordinator_addr,
-                    sem_barrier_mcast_addr,
-                    num_cores_x);
+                DPRINT << TERM_WRITER << "[Writer] barrier (" << sem_barrier_coordinator_addr
+                       << "), self barrier = " << HEX() << (uint32_t)sem_self_barrier_ptr << DEC() << " (" << HEX()
+                       << sem_noc_barrier_addr << DEC() << ")"
+                       << ", stage = " << core_stage << ", sub = " << sub << TERM_RESET << ENDL();
+
+                sort_noc_barrier(sem_barrier_coordinator_addr, sem_self_barrier_ptr);
+                DPRINT << TERM_WRITER << "[Reader] completed barrier..." << TERM_RESET << ENDL();
 
                 DPRINT << TERM_WRITER << "[Writer] <- " << other_core_id << TERM_RESET << ENDL();
             }  // core_stage

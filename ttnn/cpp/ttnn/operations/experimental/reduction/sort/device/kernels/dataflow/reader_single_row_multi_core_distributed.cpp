@@ -90,19 +90,18 @@ void kernel_main() {
     constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(15);
     const uint32_t sem_index_addr = get_semaphore(get_compile_time_arg_val(16));
     const uint32_t sem_barrier_addr = get_semaphore(get_compile_time_arg_val(17));
-
-    const uint64_t sem_barrier_coordinator_core_addr =
-        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
+    const uint32_t sem_reader_barrier_coordinator_addr = get_semaphore(get_compile_time_arg_val(18));
 
     // Only relevant for coordinator core
     const uint64_t sem_barrier_mcast_addr =
         get_noc_multicast_addr(start_core_x, start_core_y, end_core_x, end_core_y, sem_barrier_addr);
 
     const uint64_t sem_barrier_coordinator_addr =
-        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
+        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_reader_barrier_coordinator_addr);
 
     sem_ptr_t sem_self_index_other_ptr = reinterpret_cast<sem_ptr_t>(sem_index_addr);
     sem_ptr_t sem_self_barrier_ptr = reinterpret_cast<sem_ptr_t>(sem_barrier_addr);
+    sem_ptr_t sem_self_barrier_coordinator_ptr = reinterpret_cast<sem_ptr_t>(sem_reader_barrier_coordinator_addr);
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
@@ -196,9 +195,12 @@ void kernel_main() {
                 DPRINT << TERM_READER << "[Reader] stage #" << core_stage << ", sub = " << sub_dist << ", "
                        << this_core_id << " -> " << other_core_id << TERM_RESET << ENDL();
                 for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
+                    DPRINT << TERM_READER << "[Reader] stage #" << core_stage << ", sub = " << sub_dist << ", w = " << w
+                           << TERM_RESET << ENDL();
                     cb_wait_front(index_tensor_output_cb_index, one_tile);
                     const uint32_t l1_read_ptr = get_read_ptr(index_tensor_output_cb_index);
 
+                    DPRINT << TERM_READER << "[Reader] cb_wait_front done" << TERM_RESET << ENDL();
                     cb_reserve_back(index_tensor_other_cb_index, one_tile);
                     uint32_t index_other_cb_write_addr = get_write_ptr(index_tensor_other_cb_index);
                     uint64_t index_other_noc_addr = get_noc_addr(other_core_x, other_core_y, index_other_cb_write_addr);
@@ -215,23 +217,23 @@ void kernel_main() {
 
                     constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
 
+                    DPRINT << TERM_READER << "[Reader] cb push back input" << TERM_RESET << ENDL();
+                    cb_pop_front(index_tensor_output_cb_index, one_tile);
+
                     DPRINT << TERM_READER << "[Reader] cb push back value" << TERM_RESET << ENDL();
                     cb_push_back(index_tensor_other_cb_index, one_tile);
 
-                    DPRINT << TERM_READER << "[Reader] cb push back input" << TERM_RESET << ENDL();
-                    cb_pop_front(index_tensor_output_cb_index, one_tile);
                     DPRINT << TERM_READER << "[Reader] send tile to compute, core stage = " << core_stage
                            << ", sub = " << sub << ", w = " << w << TERM_RESET << ENDL();
 
                 }  // Wt
 
-                sort_noc_barrier(
-                    this_core_id,
-                    coordinator_core_id,
-                    sem_self_barrier_ptr,
-                    sem_barrier_coordinator_addr,
-                    sem_barrier_mcast_addr,
-                    num_cores_x);
+                DPRINT << TERM_READER << "[Reader] barrier (" << sem_barrier_coordinator_addr
+                       << "), self barrier = " << HEX() << (uint32_t)sem_self_barrier_ptr << DEC()
+                       << ", stage = " << core_stage << ", sub = " << sub << TERM_RESET << ENDL();
+                sort_noc_barrier(sem_barrier_coordinator_addr, sem_self_barrier_ptr);
+                DPRINT << TERM_READER << "[Reader] completed barrier..." << TERM_RESET << ENDL();
+
             }  // sub
         }  // core_stage
 

@@ -91,24 +91,14 @@ void sort_noc_exchange_tiles(
     }
 }
 
-void sort_noc_barrier(
-    uint32_t this_core_id,
-    uint32_t coordinator_core_id,
-    sem_ptr_t sem_self_ptr,
-    uint64_t sem_barrier_coordinator_addr,
-    uint64_t sem_barrier_mcast_addr,
-    uint32_t number_of_peers) {
-    if (this_core_id == coordinator_core_id) {
-        noc_semaphore_set_multicast_loopback_src(coordinator_core_id, sem_barrier_mcast_addr, number_of_peers);
+void sort_noc_barrier(uint64_t sem_barrier_coordinator_addr, sem_ptr_t sem_self_barrier_ptr) {
+    noc_semaphore_inc(sem_barrier_coordinator_addr, 1);
 
-        noc_semaphore_wait(sem_self_ptr, number_of_peers - 1);
-        noc_semaphore_set(sem_self_ptr, 0);
-    } else {
-        noc_semaphore_inc(sem_barrier_coordinator_addr, 1);
+    DPRINT << "Sent data to barrier, waiting for " << HEX() << (uint32_t)sem_self_barrier_ptr << DEC() << ENDL();
+    noc_semaphore_wait(sem_self_barrier_ptr, 1);
+    noc_semaphore_set(sem_self_barrier_ptr, 0);
 
-        noc_semaphore_wait(sem_self_ptr, 1);
-        noc_semaphore_set(sem_self_ptr, 0);
-    }
+    DPRINT << "Finished sort_noc_barrier()" << ENDL();
 }
 
 uint32_t ilog2(uint32_t n) {

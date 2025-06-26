@@ -107,6 +107,9 @@ void kernel_main() {
 
     const uint32_t number_of_confirmations = Wt / 2;
 
+    DPRINT << "[Barrier] start core = {" << start_core_physical_coord_x << ", " << start_core_physical_coord_y
+           << "}, end core = {" << end_core_physical_coord_x << ", " << end_core_physical_coord_y << "}" << ENDL();
+
     // Copy input data to output and generate index tiles
     for (uint32_t h = 0; h < Ht; h++) {
         // Prepare and move data
@@ -141,6 +144,10 @@ void kernel_main() {
         noc_semaphore_wait(semaphore_ptr, number_of_dest);
         noc_semaphore_set(semaphore_ptr, 0);  // Reset the semaphore
 
+        DPRINT << "[Barrier] multicasting, semaphore id = " << HEX() << coordinator_to_cores_semaphore_id
+               << ", golbal addr = " << semaphore_global_multicast_addr << ", number of dest = " << DEC()
+               << number_of_dest << ENDL();
+
         // Set signal to start processing
         noc_semaphore_set_multicast(coordinator_to_cores_semaphore_id, semaphore_global_multicast_addr, number_of_dest);
 
@@ -162,4 +169,6 @@ void kernel_main() {
             }  // sub loop
         }  // stage loop
     }  // Ht loop
+
+    DPRINT << "[Barrier] end" << ENDL();
 }

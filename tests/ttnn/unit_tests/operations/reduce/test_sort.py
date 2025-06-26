@@ -14,7 +14,7 @@ TILE_WIDTH = 32
     "shape, dim, descending",
     [
         # ([1, 128], -1, False),
-        ([1, 256], -1, False),
+        ([1, 2048], -1, False),
         # ([1, 1, 32, 64], -1, True),
         # ([32, 128], 1, True),
         # ([1], 0, True),

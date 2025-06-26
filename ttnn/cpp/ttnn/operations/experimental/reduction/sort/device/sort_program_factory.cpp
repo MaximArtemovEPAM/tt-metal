@@ -682,6 +682,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
 
     constexpr CoreCoord start_core_coord = CoreCoord(0, 0);
     constexpr CoreCoord end_core_coord = CoreCoord(CORE_COUNT - 1, 0);
+    constexpr CoreCoord coordinator_core = CoreCoord(CORE_COUNT, 0);
 
     if (Wt > 1) {
         core_range = CoreRangeSet(CoreRange(start_core_coord, end_core_coord));  // only use two cores for now
@@ -712,11 +713,17 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     //     }
     // }
 
+    CoreRangeSet all_core_set{CoreRange(coordinator_core)};
+    all_core_set = all_core_set.merge<CoreRangeSet>(core_range);
+
     // Semaphore setup
-    const uint32_t sem_value_id = CreateSemaphore(program, core_range, 0);
-    const uint32_t sem_index_id = CreateSemaphore(program, core_range, 0);
-    const uint32_t sem_reader_barrier_id = CreateSemaphore(program, core_range, 0);
-    const uint32_t sem_writer_barrier_id = CreateSemaphore(program, core_range, 0);
+    const uint32_t sem_value_id = CreateSemaphore(program, all_core_set, 0);
+    const uint32_t sem_index_id = CreateSemaphore(program, all_core_set, 0);
+    const uint32_t sem_reader_barrier_id = CreateSemaphore(program, all_core_set, 0);
+    const uint32_t sem_writer_barrier_id = CreateSemaphore(program, all_core_set, 0);
+    // Technically: only needed on coordinator core
+    const uint32_t sem_reader_barrier_coordinator_id = CreateSemaphore(program, all_core_set, 0);
+    const uint32_t sem_writer_barrier_coordinator_id = CreateSemaphore(program, all_core_set, 0);
 
     // Circular buffers
     constexpr uint32_t input_tensor_cb_index = tt::CBIndex::c_0;
@@ -724,14 +731,14 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::CircularBufferConfig(
             cb_in_units * input_tensor_tile_size, {{input_tensor_cb_index, input_tensor_cb_data_format}})
             .set_page_size(input_tensor_cb_index, input_tensor_tile_size);
-    auto cb_input_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, input_tensor_cb_config);
+    auto cb_input_tensor = tt::tt_metal::CreateCircularBuffer(program, all_core_set, input_tensor_cb_config);
 
     constexpr uint32_t index_tensor_cb_index = tt::CBIndex::c_1;
     const tt::tt_metal::CircularBufferConfig index_tensor_cb_config =
         tt::tt_metal::CircularBufferConfig(
             cb_in_units * index_tensor_tile_size, {{index_tensor_cb_index, index_tensor_cb_data_format}})
             .set_page_size(index_tensor_cb_index, index_tensor_tile_size);
-    auto cb_index_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_cb_config);
+    auto cb_index_tensor = tt::tt_metal::CreateCircularBuffer(program, all_core_set, index_tensor_cb_config);
 
     constexpr uint32_t input_tensor_transposed_cb_index = tt::CBIndex::c_2;
     const tt::tt_metal::CircularBufferConfig input_tensor_transposed_cb_config =
@@ -739,7 +746,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
             Wt_per_core * input_tensor_tile_size, {{input_tensor_transposed_cb_index, input_tensor_cb_data_format}})
             .set_page_size(input_tensor_transposed_cb_index, input_tensor_tile_size);
     auto cb_input_tensor_transposed =
-        tt::tt_metal::CreateCircularBuffer(program, core_range, input_tensor_transposed_cb_config);
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, input_tensor_transposed_cb_config);
 
     constexpr uint32_t index_tensor_transposed_cb_index = tt::CBIndex::c_3;
     const tt::tt_metal::CircularBufferConfig index_tensor_transposed_cb_config =
@@ -747,14 +754,14 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
             Wt_per_core * index_tensor_tile_size, {{index_tensor_transposed_cb_index, index_tensor_cb_data_format}})
             .set_page_size(index_tensor_transposed_cb_index, index_tensor_tile_size);
     auto cb_index_tensor_transposed =
-        tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_transposed_cb_config);
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, index_tensor_transposed_cb_config);
 
     constexpr uint32_t value_tensor_cb_index = tt::CBIndex::c_4;
     const tt::tt_metal::CircularBufferConfig value_tensor_cb_config =
         tt::tt_metal::CircularBufferConfig(
             num_cb_unit * value_tensor_tile_size, {{value_tensor_cb_index, value_tensor_cb_data_format}})
             .set_page_size(value_tensor_cb_index, index_tensor_tile_size);
-    auto cb_value_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, value_tensor_cb_config);
+    auto cb_value_tensor = tt::tt_metal::CreateCircularBuffer(program, all_core_set, value_tensor_cb_config);
 
     constexpr uint32_t index_tensor_output_cb_index = tt::CBIndex::c_5;
     const tt::tt_metal::CircularBufferConfig index_tensor_output_cb_config =
@@ -762,7 +769,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
             num_cb_unit * index_tensor_tile_size, {{index_tensor_output_cb_index, index_tensor_cb_data_format}})
             .set_page_size(index_tensor_output_cb_index, index_tensor_tile_size);
     auto cb_index_tensor_output =
-        tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_output_cb_config);
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, index_tensor_output_cb_config);
 
     // NOTE: This CB only contain a single tile, but it could be increased later (to allow for bigger NOC transfers)
     constexpr uint32_t value_tensor_other_cb_index = tt::CBIndex::c_6;
@@ -770,27 +777,29 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::CircularBufferConfig(
             value_tensor_tile_size, {{value_tensor_other_cb_index, value_tensor_cb_data_format}})
             .set_page_size(value_tensor_other_cb_index, value_tensor_tile_size);
-    auto cb_value_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, value_tensor_other_cb_config);
+    auto cb_value_other_tensor =
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, value_tensor_other_cb_config);
 
     constexpr uint32_t index_tensor_other_cb_index = tt::CBIndex::c_7;
     const tt::tt_metal::CircularBufferConfig index_tensor_other_cb_config =
         tt::tt_metal::CircularBufferConfig(
             index_tensor_tile_size, {{index_tensor_other_cb_index, index_tensor_cb_data_format}})
             .set_page_size(index_tensor_other_cb_index, index_tensor_tile_size);
-    auto cb_index_other_tensor = tt::tt_metal::CreateCircularBuffer(program, core_range, index_tensor_other_cb_config);
+    auto cb_index_other_tensor =
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, index_tensor_other_cb_config);
 
     // NOTE: This CB is only used to synchronised Computer kernel and Writer kernel
     constexpr uint32_t sync_with_writer_cb_index = tt::CBIndex::c_8;
     const tt::tt_metal::CircularBufferConfig sync_with_writer_cb_config =
         tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_with_writer_cb_index, sync_cb_data_format}})
             .set_page_size(sync_with_writer_cb_index, sync_tile_size);
-    auto cb_sync_with_writer = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_with_writer_cb_config);
+    auto cb_sync_with_writer = tt::tt_metal::CreateCircularBuffer(program, all_core_set, sync_with_writer_cb_config);
 
     constexpr uint32_t sync_with_reader_cb_index = tt::CBIndex::c_9;
     const tt::tt_metal::CircularBufferConfig sync_with_reader_cb_config =
         tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_with_reader_cb_index, sync_cb_data_format}})
             .set_page_size(sync_with_reader_cb_index, sync_tile_size);
-    auto cb_sync_with_reader = tt::tt_metal::CreateCircularBuffer(program, core_range, sync_with_reader_cb_config);
+    auto cb_sync_with_reader = tt::tt_metal::CreateCircularBuffer(program, all_core_set, sync_with_reader_cb_config);
 
     // Used to sync packer and unpacker threads
     constexpr uint32_t sync_packer_with_unpacker_cb_index = tt::CBIndex::c_10;
@@ -798,7 +807,7 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         tt::tt_metal::CircularBufferConfig(sync_tile_size, {{sync_packer_with_unpacker_cb_index, sync_cb_data_format}})
             .set_page_size(sync_packer_with_unpacker_cb_index, sync_tile_size);
     auto cb_sync_packer_with_unpacker =
-        tt::tt_metal::CreateCircularBuffer(program, core_range, sync_packer_with_unpacker_cb_config);
+        tt::tt_metal::CreateCircularBuffer(program, all_core_set, sync_packer_with_unpacker_cb_config);
 
     // Kernels
     const std::vector<uint32_t> reader_compile_time_args = {
@@ -819,7 +828,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
         sem_index_id,
-        sem_reader_barrier_id};
+        sem_reader_barrier_id,
+        sem_reader_barrier_coordinator_id};
     const std::string reader_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
         "reader_single_row_multi_core_distributed.cpp";
@@ -850,7 +860,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
         sem_value_id,
-        sem_writer_barrier_id};
+        sem_writer_barrier_id,
+        sem_writer_barrier_coordinator_id};
     const std::string writer_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
         "writer_single_row_multi_core_distributed.cpp";
@@ -889,13 +900,25 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         compute_kernel_path,
         core_range,
         tt::tt_metal::ComputeConfig{.compile_args = compute_compile_time_args});
-    // SetRuntimeArgs(
-    //     program,
-    //     compute_kernel_id,
-    //     core_range,
-    //     {all_core_utilization_loop_count ? all_core_utilization_loop_count : 1});
 
-    // const CoreCoord other_core = {1, 0};
+    // Coordinator Kernels Setup
+    const std::string barrier_kernel_path =
+        "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
+        "coordinator_single_row_multicore_distributed.cpp";
+    const std::vector<uint32_t> reader_barrier_compile_time_args = {
+        intercore_stages, num_cores_x, sem_reader_barrier_coordinator_id, sem_reader_barrier_id};
+    const std::vector<uint32_t> writer_barrier_compile_time_args = {
+        intercore_stages, num_cores_x, sem_writer_barrier_coordinator_id, sem_writer_barrier_id};
+    tt::tt_metal::KernelHandle reader_barrier_kernel_id = tt::tt_metal::CreateKernel(
+        program,
+        barrier_kernel_path,
+        coordinator_core,
+        tt::tt_metal::ReaderDataMovementConfig{reader_barrier_compile_time_args});
+    tt::tt_metal::KernelHandle writer_barrier_kernel_id = tt::tt_metal::CreateKernel(
+        program,
+        barrier_kernel_path,
+        coordinator_core,
+        tt::tt_metal::WriterDataMovementConfig{writer_barrier_compile_time_args});
 
     std::cout << "loop count = " << all_core_utilization_loop_count << std::endl;
     // For 4 cores
@@ -907,7 +930,38 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     }
     uint32_t loop_count = 0;
 
+    const CoreCoord start_core_logical_coord = core_range.ranges()[0].start_coord;
+    const CoreCoord end_core_logical_coord = core_range.ranges()[core_range.ranges().size() - 1].end_coord;
+    const auto start_core_physical_coord = device->worker_core_from_logical_core(start_core_logical_coord);
+    const auto end_core_physical_coord = device->worker_core_from_logical_core(coordinator_core);
+
+    const auto coordinator_core_physical_coord = device->worker_core_from_logical_core(coordinator_core);
+
     constexpr uint32_t PHYSICAL_GRID_SIZE_Y = 32;
+
+    SetRuntimeArgs(
+        program,
+        reader_barrier_kernel_id,
+        coordinator_core,
+        {all_core_utilization_loop_count,
+         start_core_physical_coord.x,
+         start_core_physical_coord.y,
+         end_core_physical_coord.x,
+         end_core_physical_coord.y,
+         coordinator_core_physical_coord.x,
+         coordinator_core_physical_coord.y});
+
+    SetRuntimeArgs(
+        program,
+        writer_barrier_kernel_id,
+        coordinator_core,
+        {all_core_utilization_loop_count,
+         start_core_physical_coord.x,
+         start_core_physical_coord.y,
+         end_core_physical_coord.x,
+         end_core_physical_coord.y,
+         coordinator_core_physical_coord.x,
+         coordinator_core_physical_coord.y});
 
     for (uint32_t core_id = 0; core_id < CORE_COUNT; core_id++) {
         if (core_id >= 2 && CORE_COUNT <= 2) {
@@ -919,10 +973,6 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         uint32_t stage2_peer = core_id ^ 2;
 
         uint32_t logical_core_id = core_id;
-
-        constexpr uint32_t COORDINATOR_CORE = 0;
-        const uint32_t coordinator_core_x = physical_coords[COORDINATOR_CORE].x;
-        const uint32_t coordinator_core_y = physical_coords[COORDINATOR_CORE].y;
 
         SetRuntimeArgs(
             program,
@@ -938,12 +988,12 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coords[stage1_peer].y,
              physical_coords[stage2_peer].x,
              physical_coords[stage2_peer].y,
-             start_core_coord.x,
-             start_core_coord.y,
-             end_core_coord.x,
-             end_core_coord.y,
-             coordinator_core_x,
-             coordinator_core_y});
+             start_core_physical_coord.x,
+             start_core_physical_coord.y,
+             end_core_physical_coord.x,
+             end_core_physical_coord.y,
+             coordinator_core_physical_coord.x,
+             coordinator_core_physical_coord.y});
         SetRuntimeArgs(
             program,
             writer_kernel_id,
@@ -957,12 +1007,12 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coords[stage1_peer].y,
              physical_coords[stage2_peer].x,
              physical_coords[stage2_peer].y,
-             start_core_coord.x,
-             start_core_coord.y,
-             end_core_coord.x,
-             end_core_coord.y,
-             coordinator_core_x,
-             coordinator_core_y});
+             start_core_physical_coord.x,
+             start_core_physical_coord.y,
+             end_core_physical_coord.x,
+             end_core_physical_coord.y,
+             coordinator_core_physical_coord.x,
+             coordinator_core_physical_coord.y});
         SetRuntimeArgs(program, compute_kernel_id, cores[core_id], {all_core_utilization_loop_count, logical_core_id});
     }  // CORE_COUNT
 

@@ -16,3 +16,4 @@ constexpr const char* TERM_RESET = "\033[0m";
 constexpr const char* TERM_COMPUTE = TERM_CYAN;
 constexpr const char* TERM_READER = TERM_YELLOW;
 constexpr const char* TERM_WRITER = TERM_GREEN;
+constexpr const char* TERM_BARRIER = TERM_MAGENTA;

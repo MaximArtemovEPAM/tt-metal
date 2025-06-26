@@ -20,11 +20,11 @@ SortDeviceOperation::program_factory_t SortDeviceOperation::select_program_facto
     // TEST
     return sort::program::SortProgramFactorySingleRowMulticoreDistributed{};
 
-    if (Wt > WT_THRESHOLD) {
-        // Multi-core implementation
-        return sort::program::SortProgramFactorySingleRowMultiCore{};
-    }
-    return sort::program::SortProgramFactorySingleRowSingleCore{};
+    // if (Wt > WT_THRESHOLD) {
+    // Multi-core implementation
+    // return sort::program::SortProgramFactorySingleRowMultiCore{};
+    // }
+    // return sort::program::SortProgramFactorySingleRowSingleCore{};
 }
 
 void SortDeviceOperation::validate_on_program_cache_hit(

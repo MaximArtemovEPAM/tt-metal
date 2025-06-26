@@ -203,7 +203,7 @@ void MAIN {
     bool ascending_core = (this_core_id & 1) ^ !final_sorting_direction;
 
     DPRINT_MATH(
-        DPRINT << TERM_COMPUTE << "[Compute] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core
+        DPRINT << TERM_COMPUTE << "[C] Wt = " << Wt << ", Wt_per_core = " << Wt_per_core
                << ", core id = " << this_core_id << ", intercore stages = " << intercore_stages
                << ", ascending_core = " << (uint32_t)ascending_core << TERM_RESET << ENDL());
 
@@ -339,7 +339,7 @@ void MAIN {
                     select_min = !select_min;
                 }
 
-                DPRINT_UNPACK(DPRINT << TERM_COMPUTE << "[Compute] Exchanging tiles, core stage = " << core_stage
+                DPRINT_UNPACK(DPRINT << TERM_COMPUTE << "[C] Exchanging tiles, core stage = " << core_stage
                                      << ", core_sub = " << core_sub << ", core sub dist = " << core_sub_dist
                                      << ", this core id = " << this_core_id << ", other core id = " << other_core_id
                                      << ", select min = " << (uint32_t)select_min
@@ -378,32 +378,40 @@ void MAIN {
                     pack_tile<true>(TILE_INPUT0, value_tensor_cb_index, FIRST_TILE);
                     cb_push_back(value_tensor_cb_index, one_tile);
                     tile_regs_release();
-                    DPRINT << TERM_COMPUTE << "[Compute] sent tile to Writer (" << value_tensor_cb_index
+                    DPRINT << TERM_COMPUTE << "[C] sent tile to Writer (" << value_tensor_cb_index
                            << "), core stage = " << core_stage << ", core sub = " << core_sub << ", w = " << i
                            << TERM_RESET << ENDL();
 
                     // 2nd step: send index tile to Reader
-                    cb_reserve_back(index_tensor_output_cb_index, one_tile);
                     tile_regs_acquire();
                     copy_tile_to_dst_init_short(index_tensor_transposed_cb_index);
                     copy_tile(index_tensor_transposed_cb_index, i, TILE_INDEX0);
                     tile_regs_commit();
+
                     tile_regs_wait();
+                    DPRINT_PACK(DPRINT << TERM_COMPUTE << "[C] packer call reserve back" << TERM_RESET << ENDL(););
+
+                    cb_reserve_back(index_tensor_output_cb_index, one_tile);
+                    DPRINT_PACK(DPRINT << TERM_COMPUTE << "[C] packer call pack" << TERM_RESET << ENDL(););
+
                     pack_reconfig_data_format(index_tensor_output_cb_index);
                     pack_tile<true>(TILE_INDEX0, index_tensor_output_cb_index, FIRST_TILE);
-                    tile_regs_release();
+
+                    DPRINT_PACK(DPRINT << TERM_COMPUTE << "[C] packer call push back" << TERM_RESET << ENDL(););
+
                     cb_push_back(index_tensor_output_cb_index, one_tile);
+                    tile_regs_release();
 
                     // TODO: A synchronization between packer and unpacker may be needed here
 
                     // Read other input and index
-                    DPRINT << TERM_COMPUTE << "[Compute] waiting for cbs, core stage = " << core_stage
+                    DPRINT << TERM_COMPUTE << "[C] waiting for cbs, core stage = " << core_stage
                            << ", core sub = " << core_sub_dist << ", i = " << i << TERM_RESET << ENDL();
                     WAYPOINT("K");
                     cb_wait_front(value_tensor_other_cb_index, one_tile);
                     cb_wait_front(index_tensor_other_cb_index, one_tile);
 
-                    DPRINT << TERM_COMPUTE << "[Compute] got other cbs, core stage = " << core_stage
+                    DPRINT << TERM_COMPUTE << "[C] got other cbs, core stage = " << core_stage
                            << ", core sub = " << core_sub_dist << ", i = " << i << TERM_RESET << ENDL();
                     WAYPOINT("K");
 
@@ -419,7 +427,7 @@ void MAIN {
                     copy_tile_to_dst_init_short(value_tensor_other_cb_index);
                     copy_tile(value_tensor_other_cb_index, FIRST_TILE, TILE_INPUT1);
 
-                    DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] min-max, core stage = " << core_stage
+                    DPRINT_MATH(DPRINT << TERM_COMPUTE << "[C] min-max, core stage = " << core_stage
                                        << ", core sub = " << core_sub_dist << ", i = " << i << TERM_RESET << ENDL(););
 
                     // DPRINT_MATH(DPRINT << TERM_COMPUTE << "TILE_INPUT0 [" << i << "] = " << TERM_RESET << ENDL());
@@ -460,7 +468,7 @@ void MAIN {
                     cb_wait_front(sync_packer_with_unpacker_cb_index, one_tile);
                     cb_pop_front(sync_packer_with_unpacker_cb_index, one_tile);
 
-                    DPRINT << TERM_COMPUTE << "[Compute] cb_push_back stage = " << core_stage
+                    DPRINT << TERM_COMPUTE << "[C] cb_push_back stage = " << core_stage
                            << ", core sub = " << core_sub_dist << ", i = " << i << TERM_RESET << ENDL();
                     WAYPOINT("K");
 
@@ -468,7 +476,7 @@ void MAIN {
                     cb_push_back(sync_packer_with_unpacker_cb_index, one_tile);
                 }
 
-                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] received tiles from writer" << TERM_RESET << ENDL(););
+                DPRINT_MATH(DPRINT << TERM_COMPUTE << "[C] received tiles from writer" << TERM_RESET << ENDL(););
                 // print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
 
                 // Sorting order:
@@ -492,7 +500,7 @@ void MAIN {
 
             // Repeat local sort (bitonic sequence + merge)
             // This is a naive approach, we could probably do something better
-            DPRINT << TERM_COMPUTE << "[Compute] finished exchange"
+            DPRINT << TERM_COMPUTE << "[C] finished exchange"
                    << ", core stage = " << core_stage << TERM_RESET << ENDL();
 
             // Fill input_tensor_transposed_cb_index
@@ -507,16 +515,15 @@ void MAIN {
 
             // Sort pairs of tiles
             uint32_t switch_dir = true;
-            DPRINT << TERM_COMPUTE << "==== Rebuilding Bitonic Sequence"
+            DPRINT << TERM_COMPUTE << "==== Rebuilding Sequence"
                    << ", core id = " << this_core_id << ", core stage = " << core_stage
-                   << ", direction = " << (uint32_t)direction << " ===" << TERM_RESET << ENDL();
+                   << ", dir = " << (uint32_t)direction << " ===" << TERM_RESET << ENDL();
 
             sort_Wt_tiles(
                 input_tensor_transposed_cb_index, index_tensor_transposed_cb_index, Wt_per_core, direction == 0);
             ascending = (direction == 0);
 
-            DPRINT << TERM_COMPUTE << "[Compute] final local sort, direction = " << (uint32_t)direction << TERM_RESET
-                   << ENDL();
+            DPRINT << TERM_COMPUTE << "[C] final local sort, dir = " << (uint32_t)direction << TERM_RESET << ENDL();
             for (uint32_t stage = 2; stage <= stages; stage++) {
                 for (uint32_t sub = stage; sub > 0; sub--) {
                     uint32_t sub_dist = 1 << (sub - 1);
@@ -533,7 +540,7 @@ void MAIN {
 
                             const uint32_t left_tile_id = i;
                             const uint32_t right_tile_id = j;
-                            DPRINT_MATH(DPRINT << TERM_COMPUTE << "[Compute] stage = " << stage << ", sub = " << sub
+                            DPRINT_MATH(DPRINT << TERM_COMPUTE << "[C] stage = " << stage << ", sub = " << sub
                                                << ", merging " << left_tile_id << " and " << right_tile_id
                                                << ", dir = " << (int)dir << TERM_RESET << ENDL(););
 
@@ -574,7 +581,7 @@ void MAIN {
                     }  // Wt_per_core
                 }  // sub
             }  // stage
-            DPRINT << TERM_COMPUTE << "[Compute] finished stage = " << core_stage << TERM_RESET << ENDL();
+            DPRINT << TERM_COMPUTE << "[C] finished stage = " << core_stage << TERM_RESET << ENDL();
             // print_Wt_tiles(input_tensor_transposed_cb_index, Wt_per_core, 0, 0);
         }  // intercore_stages
 
@@ -595,7 +602,7 @@ void MAIN {
         transpose_and_pack(index_tensor_transposed_cb_index, index_tensor_output_cb_index, Wt_per_core);
 
     }  // Ht loop
-    DPRINT << TERM_COMPUTE << "[Compute] completed" << TERM_RESET << ENDL();
+    DPRINT << TERM_COMPUTE << "[C] completed" << TERM_RESET << ENDL();
 }
 
 }  // namespace NAMESPACE
