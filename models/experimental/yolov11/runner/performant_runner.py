@@ -82,7 +82,7 @@ class YOLOv11PerformantRunner:
     def _execute_yolov11_trace_2cqs_inference(self, tt_inputs_host=None):
         tt_inputs_host = self.tt_inputs_host if tt_inputs_host is None else tt_inputs_host
         ttnn.wait_for_event(1, self.op_event)
-        ttnn.copy_host_to_device_tensor(self.tt_inputs_host, self.tt_image_res, 1)
+        ttnn.copy_host_to_device_tensor(tt_inputs_host, self.tt_image_res, 1)
         self.write_event = ttnn.record_event(self.device, 1)
         ttnn.wait_for_event(0, self.write_event)
         # TODO: Add in place support to ttnn to_memory_config
@@ -97,7 +97,7 @@ class YOLOv11PerformantRunner:
         assert_with_pcc(torch_output_tensor, result_output_tensor, 0.99)
 
     def run(self, torch_input_tensor=None, check_pcc=False):
-        tt_inputs_host = self.runner_infra._setup_l1_sharded_input(self.device, torch_input_tensor)
+        tt_inputs_host, _ = self.runner_infra._setup_l1_sharded_input(self.device, torch_input_tensor)
         output = self._execute_yolov11_trace_2cqs_inference(tt_inputs_host)
         if check_pcc:
             torch_input_tensor = torch_input_tensor.reshape(n, h, w, c)
