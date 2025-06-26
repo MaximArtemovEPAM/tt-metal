@@ -313,7 +313,6 @@ class TtSPPF:
             parameters["cv2"],
             input_params=input_params[1],
             deallocate_activation=True,
-            conv_math_fidelity=ttnn.MathFidelity.HiFi2,
         )
 
     def __call__(self, x):
@@ -499,7 +498,6 @@ class TtC2fAttn:
             self.parameters["cv2"],
             input_params=input_params[1],
             deallocate_activation=self.deallocate_activation,
-            conv_math_fidelity=ttnn.MathFidelity.HiFi2,
         )
         self.m = [
             TtBottleneck(
