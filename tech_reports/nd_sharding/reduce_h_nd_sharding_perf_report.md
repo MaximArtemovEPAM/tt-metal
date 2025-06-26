@@ -52,7 +52,7 @@ Vizualization of tiles read order:
 - The only difference is using ShardedAccessor instead odf InterleavedAddrGenFast
 
 
-## Performance issues and fixes
+## Initial bringup
 [**Performance table**](https://docs.google.com/spreadsheets/d/12XUDufWVvtvFxiGo-ZpCbj47jZCsOxjeYr-CHPiZgzQ/edit?usp=sharing)
 
 To avoid copying whe whole table in this doc, we'l track performance of `256x512 64 shards on 64 cores` case (tensor shape: (1, 1, 256, 32768), shard shape: (1, 1, 256, 512))
@@ -69,7 +69,7 @@ memory_config = ttnn.MemoryConfig(
 )
 ```
 
-Performance is awful (2.3x-4.1x slower than 2d sharding):
+Performance is not good (2.3x-4.1x slower than 2d sharding):
 
 | 256x512 64 shards on 64 cores | DRAM interleaved | L1 interleaved | 2d width sharding | nd sharding baseline |
 | ----------------------------- | ---------------- | -------------- | ----------------- | -------------------- |
@@ -91,7 +91,7 @@ uint32_t y = packed_xy_coords[bank_id] & 0xFF;
 DPRINT_DATA0(DPRINT << "bank_id: " << (uint32_t)bank_id << ", x: " << x << ", y: " << y << ", my_x: " << (uint32_t) my_x[0] << ", my_y: " << (uint32_t) my_y[0] << ENDL());
 ```
 
-This can be easily fixed with col-major core orientation
+This can be easily fixed with a col-major core orientation or if a proper host setup code is used
 ```python
 memory_config = ttnn.MemoryConfig(
     buffer_type=ttnn.BufferType.L1,
@@ -162,3 +162,5 @@ TODO: Should align perf with 2d sharding
 ```bash
 tt_metal/tools/profiler/profile_this.py -c 'pytest tests/sweep_framework/sweeps/reduction/traces/sum_traces_nd_sharding.py::test_default'
 ```
+
+- Should create a .csv file under generated/profiler/reports/time_stamp/
