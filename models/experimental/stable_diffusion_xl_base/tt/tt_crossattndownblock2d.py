@@ -20,7 +20,8 @@ class TtCrossAttnDownBlock2D(nn.Module):
         num_attn_heads,
         out_dim,
         has_downsample=False,
-        transformer_weights_dtype=ttnn.bfloat16,
+        attention_weights_dtype=ttnn.bfloat16,
+        ff_weights_dtype=ttnn.bfloat16,
     ):
         super().__init__()
 
@@ -39,7 +40,8 @@ class TtCrossAttnDownBlock2D(nn.Module):
                     query_dim,
                     num_attn_heads,
                     out_dim,
-                    weights_dtype=transformer_weights_dtype,
+                    attention_weights_dtype=attention_weights_dtype,
+                    ff_weights_dtype=ff_weights_dtype,
                 )
             )
 

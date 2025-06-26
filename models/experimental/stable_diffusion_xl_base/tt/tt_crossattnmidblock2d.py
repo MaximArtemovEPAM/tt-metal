@@ -18,7 +18,8 @@ class TtUNetMidBlock2DCrossAttn(nn.Module):
         query_dim,
         num_attn_heads,
         out_dim,
-        transformer_weights_dtype=ttnn.bfloat16,
+        attention_weights_dtype=ttnn.bfloat16,
+        ff_weights_dtype=ttnn.bfloat16,
     ):
         super().__init__()
 
@@ -37,7 +38,8 @@ class TtUNetMidBlock2DCrossAttn(nn.Module):
                     query_dim,
                     num_attn_heads,
                     out_dim,
-                    weights_dtype=transformer_weights_dtype,
+                    attention_weights_dtype=attention_weights_dtype,
+                    ff_weights_dtype=ff_weights_dtype,
                 )
             )
 

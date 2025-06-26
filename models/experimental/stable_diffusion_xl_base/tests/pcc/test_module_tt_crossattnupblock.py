@@ -41,7 +41,8 @@ from models.experimental.stable_diffusion_xl_base.tests.test_common import SDXL_
         ),
     ],
 )
-@pytest.mark.parametrize("transformer_weights_dtype", [ttnn.bfloat16])
+@pytest.mark.parametrize("attention_weights_dtype", [ttnn.bfloat16])
+@pytest.mark.parametrize("ff_weights_dtype", [ttnn.bfloat8_b])
 @pytest.mark.parametrize("conv_weights_dtype", [ttnn.bfloat16])
 @pytest.mark.parametrize("device_params", [{"l1_small_size": SDXL_L1_SMALL_SIZE}], indirect=True)
 def test_crossattnup(
@@ -57,7 +58,8 @@ def test_crossattnup(
     pcc,
     use_program_cache,
     reset_seeds,
-    transformer_weights_dtype,
+    attention_weights_dtype,
+    ff_weights_dtype,
     conv_weights_dtype,
 ):
     unet = UNet2DConditionModel.from_pretrained(
@@ -78,7 +80,8 @@ def test_crossattnup(
         num_attn_heads,
         out_dim,
         True,
-        transformer_weights_dtype=transformer_weights_dtype,
+        attention_weights_dtype=attention_weights_dtype,
+        ff_weights_dtype=ff_weights_dtype,
     )
     torch_input_tensor = torch_random(input_shape, -0.1, 0.1, dtype=torch.float32)
     torch_temb_tensor = torch_random(temb_shape, -0.1, 0.1, dtype=torch.float32)

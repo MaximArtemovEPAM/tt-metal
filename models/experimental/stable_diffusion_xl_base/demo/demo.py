@@ -54,7 +54,8 @@ def run_demo_inference(ttnn_device, is_ci_env, prompts, num_inference_steps, vae
             pipeline.unet.state_dict(),
             "unet",
             model_config=tt_model_config,
-            transformer_weights_dtype=ttnn.bfloat16,
+            attention_weights_dtype=ttnn.bfloat16,
+            ff_weights_dtype=ttnn.bfloat8_b,
         )
         tt_vae = (
             TtAutoencoderKL(ttnn_device, pipeline.vae.state_dict(), tt_model_config, batch_size)

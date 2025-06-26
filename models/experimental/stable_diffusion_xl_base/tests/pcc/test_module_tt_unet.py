@@ -76,7 +76,8 @@ def run_unet_model(
     temb_shape,
     time_ids_shape,
     conv_weights_dtype,
-    transformer_weights_dtype,
+    attention_weights_dtype,
+    ff_weights_dtype,
     iterations=1,
 ):
     unet = UNet2DConditionModel.from_pretrained(
@@ -92,7 +93,8 @@ def run_unet_model(
         device,
         state_dict,
         "unet",
-        transformer_weights_dtype=transformer_weights_dtype,
+        attention_weights_dtype=attention_weights_dtype,
+        ff_weights_dtype=ff_weights_dtype,
         model_config=model_config,
     )
     torch_input_tensor = torch_random(input_shape, -0.1, 0.1, dtype=torch.float32)
@@ -181,7 +183,8 @@ def run_unet_model(
     ],
 )
 @pytest.mark.parametrize("conv_weights_dtype", [ttnn.bfloat16])
-@pytest.mark.parametrize("transformer_weights_dtype", [ttnn.bfloat16])
+@pytest.mark.parametrize("attention_weights_dtype", [ttnn.bfloat16])
+@pytest.mark.parametrize("ff_weights_dtype", [ttnn.bfloat8_b])
 @pytest.mark.parametrize("device_params", [{"l1_small_size": SDXL_L1_SMALL_SIZE}], indirect=True)
 def test_unet(
     device,
@@ -191,7 +194,8 @@ def test_unet(
     temb_shape,
     time_ids_shape,
     conv_weights_dtype,
-    transformer_weights_dtype,
+    attention_weights_dtype,
+    ff_weights_dtype,
     use_program_cache,
     reset_seeds,
 ):
@@ -203,5 +207,6 @@ def test_unet(
         temb_shape,
         time_ids_shape,
         conv_weights_dtype,
-        transformer_weights_dtype,
+        attention_weights_dtype=attention_weights_dtype,
+        ff_weights_dtype=ff_weights_dtype,
     )
