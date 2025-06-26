@@ -46,9 +46,8 @@ def test_perf(device, use_pretrained_weight, use_program_cache):
     disable_persistent_kernel_cache()
     torch_input = torch.randn(1, 3, 640, 640)
 
-    ttnn_input = torch_input.permute(0, 2, 3, 1)
     ttnn_input = ttnn.from_torch(
-        ttnn_input,
+        torch_input,
         dtype=ttnn.bfloat16,
         layout=ttnn.ROW_MAJOR_LAYOUT,
         device=device,
@@ -102,7 +101,7 @@ def test_perf(device, use_pretrained_weight, use_program_cache):
 
     for i in range(2):
         start = time.time()
-        ttnn_model_output, ttnn_model_output_x = ttnn_model(ttnn_input)
+        ttnn_model_output, ttnn_model_output_x = ttnn_model(ttnn.clone(ttnn_input))
         end = time.time()
         durations.append(end - start)
         ttnn.deallocate(ttnn_model_output)
@@ -134,7 +133,7 @@ def test_perf(device, use_pretrained_weight, use_program_cache):
 @pytest.mark.parametrize(
     "batch_size, expected_perf",
     [
-        [1, 80.0],
+        [1, 85.0],
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
