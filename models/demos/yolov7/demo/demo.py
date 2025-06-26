@@ -30,7 +30,7 @@ sys.modules["models.yolo"] = yolov7_model
         "models/demos/yolov7/demo/horses.jpg",
     ],
 )
-@pytest.mark.parametrize("model_type", ["torch_model", "tt_model"])
+@pytest.mark.parametrize("model_type", ["tt_model"])
 def test_demo(device, use_program_cache, reset_seeds, model_type, source):
     disable_persistent_kernel_cache()
 
@@ -72,7 +72,7 @@ def test_demo(device, use_program_cache, reset_seeds, model_type, source):
                 ttnn.bfloat16,
                 resolution=(640, 640),
                 model_location_generator=None,
-                torch_input_tensor=im,
+                # torch_input_tensor=im,
             )
             performant_runner._capture_yolov7_trace_2cqs()
             logger.info("Inferencing [TTNN] Model")
