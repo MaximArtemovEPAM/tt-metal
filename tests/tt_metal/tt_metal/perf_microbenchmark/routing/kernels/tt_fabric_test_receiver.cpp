@@ -16,38 +16,38 @@ void kernel_main() {
 
     // clear out test results area
 
-    bool failed = false;
+    // bool failed = false;
 
-    bool packets_left_to_validate = true;
-    while (packets_left_to_validate) {
-        packets_left_to_validate = false;
-        for (uint8_t i = 0; i < NUM_TRAFFIC_CONFIGS; i++) {
-            auto* traffic_config = receiver_config.traffic_configs[i];
-            if (!traffic_config->has_packets_to_validate()) {
-                continue;
-            }
+    // bool packets_left_to_validate = true;
+    // while (packets_left_to_validate) {
+    //     packets_left_to_validate = false;
+    //     for (uint8_t i = 0; i < NUM_TRAFFIC_CONFIGS; i++) {
+    //         auto* traffic_config = receiver_config.traffic_configs[i];
+    //         if (!traffic_config->has_packets_to_validate()) {
+    //             continue;
+    //         }
 
-            // if we are here, this means that we have atleast 1 packet left to validate
-            packets_left_to_validate = true;
-            bool got_new_data = traffic_config->poll();
-            if (!got_new_data) {
-                continue;
-            }
+    //         // if we are here, this means that we have atleast 1 packet left to validate
+    //         packets_left_to_validate = true;
+    //         bool got_new_data = traffic_config->poll();
+    //         if (!got_new_data) {
+    //             continue;
+    //         }
 
-            bool data_valid = traffic_config->validate();
-            if (!data_valid) {
-                failed = true;
-                break;
-            }
+    //         bool data_valid = traffic_config->validate();
+    //         if (!data_valid) {
+    //             failed = true;
+    //             break;
+    //         }
 
-            traffic_config->advance();
-            packets_left_to_validate |= traffic_config->has_packets_to_validate();
-        }
+    //         traffic_config->advance();
+    //         packets_left_to_validate |= traffic_config->has_packets_to_validate();
+    //     }
 
-        if (failed) {
-            break;
-        }
-    }
+    //     if (failed) {
+    //         break;
+    //     }
+    // }
 
     // dump results
 }

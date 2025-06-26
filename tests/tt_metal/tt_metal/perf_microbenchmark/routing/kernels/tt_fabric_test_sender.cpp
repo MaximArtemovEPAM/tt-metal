@@ -8,7 +8,7 @@ constexpr uint8_t IS_2D_FABRIC = get_compile_time_arg_val(0);
 constexpr uint8_t USE_DYNAMIC_ROUTING = get_compile_time_arg_val(1);
 constexpr uint8_t NUM_FABRIC_CONNECTIONS = get_compile_time_arg_val(2);
 constexpr uint8_t NUM_TRAFFIC_CONFIGS = get_compile_time_arg_val(3);
-constexpr bool BENCHMARK_MODE = get_compile_time_arg_val(4);
+constexpr bool BENCHMARK_MODE = true;
 
 using SenderKernelConfig = tt::tt_fabric::fabric_tests::
     SenderKernelConfig<NUM_FABRIC_CONNECTIONS, NUM_TRAFFIC_CONFIGS, IS_2D_FABRIC, USE_DYNAMIC_ROUTING>;

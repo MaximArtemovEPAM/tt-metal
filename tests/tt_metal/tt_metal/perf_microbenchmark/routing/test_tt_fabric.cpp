@@ -112,6 +112,8 @@ void TestContext::add_traffic_config(const TestTrafficConfig& traffic_config) {
         .atomic_inc_address = atomic_inc_address,
         .dst_noc_encoding = dst_noc_encoding};
 
+    log_info(tt::LogTest, "src_node_id: {}, dst_node_ids: {}", src_node_id, dst_node_ids);
+
     TestTrafficReceiverConfig receiver_config = {
         .parameters = traffic_config.parameters,
         .sender_id = sender_id,
@@ -122,6 +124,7 @@ void TestContext::add_traffic_config(const TestTrafficConfig& traffic_config) {
     for (const auto& dst_node_id : dst_node_ids) {
         const auto& dst_coord = this->fixture_->get_device_coord(dst_node_id);
         this->test_devices_.at(dst_coord).add_receiver_traffic_config(dst_logical_core, receiver_config);
+        log_info(tt::LogTest, "add_receiver_traffic_config at dev: {}, core: {}", dst_coord, dst_logical_core);
     }
 }
 
@@ -152,6 +155,10 @@ void TestContext::compile_programs() {
     fixture_->setup_workload();
     // TODO: should we be taking const ref?
     for (auto& [coord, test_device] : test_devices_) {
+        // log_info(
+        //     tt::LogTest,
+        //     "test_device: {}, coord: {}",
+        //     test_device.get_node_id(), coord);
         test_device.create_kernels();
         auto& program_handle = test_device.get_program_handle();
         if (program_handle.num_kernels()) {

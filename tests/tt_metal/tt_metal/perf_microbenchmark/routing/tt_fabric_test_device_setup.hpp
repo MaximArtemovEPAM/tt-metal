@@ -373,6 +373,10 @@ inline void TestDevice::create_sender_kernels() {
 
         std::vector<uint32_t> traffic_config_args;
         if (!sender.configs_.empty()) {
+            // log_info(
+            //     tt::LogTest,
+            //     "sender.configs_.empty()!!!");
+            log_info(tt::LogTest, "created sender kernel on core: {}", core);
             const auto& first_traffic_args = sender.configs_[0].first.get_args();
             traffic_config_args.reserve(sender.configs_.size() * first_traffic_args.size());
             traffic_config_args.insert(traffic_config_args.end(), first_traffic_args.begin(), first_traffic_args.end());
@@ -397,7 +401,6 @@ inline void TestDevice::create_sender_kernels() {
 
         // create kernel
         sender.create_kernel(coord_, ct_args, rt_args, {});
-        log_info(tt::LogTest, "created sender kernel on core: {}", core);
     }
 }
 
@@ -409,6 +412,11 @@ inline void TestDevice::create_receiver_kernels() {
 
         std::vector<uint32_t> traffic_config_args;
         if (!receiver.configs_.empty()) {
+            // log_info(
+            //     tt::LogTest,
+            //     "receiver.configs_.empty()!!!");
+            log_info(tt::LogTest, "created receiver kernel on core: {}", core);
+
             const auto& first_traffic_args = receiver.configs_[0].get_args();
             traffic_config_args.reserve(receiver.configs_.size() * first_traffic_args.size());
             traffic_config_args.insert(traffic_config_args.end(), first_traffic_args.begin(), first_traffic_args.end());
@@ -424,7 +432,6 @@ inline void TestDevice::create_receiver_kernels() {
         rt_args.insert(rt_args.end(), traffic_config_args.begin(), traffic_config_args.end());
 
         receiver.create_kernel(coord_, ct_args, rt_args, {});
-        log_info(tt::LogTest, "created receiver kernel on core: {}", core);
     }
 }
 

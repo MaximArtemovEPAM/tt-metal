@@ -1,3 +1,10 @@
+allocation_policies:
+  receiver:
+    policy: ExhaustFirst
+    max_workers_per_core: 4
+    # You can also specify memory allocation parameters for workers on a core.
+    default_payload_chunk_size: 4096
+
 Tests:
   - name: "SimpleUnicastWriteLinear"
     fabric_setup:

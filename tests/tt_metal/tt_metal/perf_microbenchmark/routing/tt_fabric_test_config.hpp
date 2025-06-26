@@ -307,6 +307,11 @@ inline SenderConfig YamlConfigParser::parse_sender_config(
         config.core = parse_core_coord(sender_yaml["core"]);
     }
 
+    // log_info(
+    //     tt::LogTest,
+    //     "Sender device: {}",
+    //     config.device);
+
     const auto& patterns_yaml = sender_yaml["patterns"];
     TT_FATAL(patterns_yaml.IsSequence(), "Expected patterns to be a sequence");
     config.patterns.reserve(patterns_yaml.size());

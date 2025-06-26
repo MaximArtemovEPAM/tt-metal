@@ -1,0 +1,43 @@
+allocation_policies:
+  receiver:
+    policy: ExhaustFirst
+    max_workers_per_core: 4
+    # You can also specify memory allocation parameters for workers on a core.
+    default_payload_chunk_size: 16384
+
+Tests:
+  - name: "1D4Chip1LinkMcastLinear"
+    fabric_setup:
+      topology: Linear
+
+    defaults:
+      ftype: mcast
+      ntype: unicast_write
+      size: 4096
+      num_packets: 200000
+
+    senders:
+      - device: [0, 0]
+        patterns:
+          - destination:
+              core: [0, 1]
+              hops:
+                E: 3
+      - device: [0, 1]
+        patterns:
+          - destination:
+              core: [0, 1]
+              hops:
+                E: 2
+      - device: [0, 2]
+        patterns:
+          - destination:
+              core: [0, 1]
+              hops:
+                W: 2
+      - device: [0, 3]
+        patterns:
+          - destination:
+              core: [0, 1]
+              hops:
+                W: 3
