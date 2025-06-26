@@ -4,6 +4,7 @@
 
 import gc
 from loguru import logger
+import ttnn
 import torch
 import inspect
 from typing import List, Optional, Union
@@ -78,7 +79,6 @@ def retrieve_timesteps(
 
 
 def run_tt_iteration(
-    ttnn_device,
     tt_unet,
     tt_scheduler,
     input_tensor,
@@ -86,16 +86,14 @@ def run_tt_iteration(
     ttnn_prompt_embeds,
     time_ids,
     text_embeds,
-    ttnn_timestep,
-    i,
 ):
     B, C, H, W = input_shape
 
-    input_tensor = tt_scheduler.scale_model_input(input_tensor, tt_scheduler.tt_timesteps[i])
+    input_tensor = tt_scheduler.scale_model_input(input_tensor, None)
     ttnn_noise_pred, output_shape = tt_unet.forward(
         input_tensor,
         [B, C, H, W],
-        timestep=ttnn_timestep,
+        timestep=tt_scheduler.tt_timestep,
         encoder_hidden_states=ttnn_prompt_embeds,
         time_ids=time_ids,
         text_embeds=text_embeds,
@@ -195,3 +193,7 @@ def run_tt_image_gen(
     profiler.end("vae_decode")
 
     return imgs
+
+def prepare_input_tensors(host_tensors, device_tensors):
+    for host_tensor, device_tensor in zip(host_tensors, device_tensors):
+        ttnn.copy_host_to_device_tensor(host_tensor, device_tensor)
