@@ -44,15 +44,15 @@ def main():
     #
     # End graph capture
 
-    # ttnn.graph.visualize(captured_graph, file_name="graph.svg")
+    ttnn.graph.visualize(captured_graph, file_name="graph.svg")
     # ttnn.graph.pretty_print(captured_graph)
 
     # print()
     # print(captured_graph)
     # print()
 
-    # Dump the captured graph to a file for debugging
-    # This can be useful to inspect the graph structure and operations
+    # Dump the captured graph
+    #
     with open("dump.txt", "w") as f:
         f.write(str(captured_graph))
 

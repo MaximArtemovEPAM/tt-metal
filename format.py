@@ -19,9 +19,5 @@ def format_json_like_text(input_path: str, output_path: str):
     print(f"Formatted output written to {output_path}")
 
 
-# Example usage:
-# Save your input to /tmp/raw_input.txt and run:
-# python this_script.py
-
 if __name__ == "__main__":
     format_json_like_text("dump.txt", "dump_formatted.txt")
