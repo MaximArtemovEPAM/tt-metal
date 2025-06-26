@@ -2,6 +2,8 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
+import torch
+
 import ttnn
 
 
@@ -18,6 +20,7 @@ def tt_all_reduce(
     sharded=False,
     dtype=ttnn.bfloat16,
     use_composite=False,
+    remote_semaphore_handles=None,
     from_remote_semaphore_handles=None,
     to_remote_semaphore_handles=None,
     worker_sub_device_id=None,
@@ -47,12 +50,38 @@ def tt_all_reduce(
         #     topology=topology,
         #     memory_config=memory_config,
         # )
-        reduced = ttnn.experimental.reduce_scatter_async(
+        rs_input_dtype = input_tensor.dtype
+        rs_input_shape = list(input_tensor.shape)
+
+        rs_num_batches = rs_input_shape[0]
+        single_batch_input_shape = rs_input_shape[:]
+        single_batch_input_shape[2] //= rs_num_batches
+        persistent_intermediate_buffer = ttnn.from_torch(
+            torch.zeros(single_batch_input_shape),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=rs_input_dtype,
+            memory_config=memory_config,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+        )
+
+        rs_output_shape = rs_input_shape[:]
+        rs_output_shape[3] //= mesh_device.get_num_devices()
+        persistent_output_buffer = ttnn.from_torch(
+            torch.zeros(rs_output_shape),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=rs_input_dtype,
+            memory_config=memory_config,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+        )
+
+        reduced = ttnn.experimental.reduce_scatter_minimal_async(
             input_tensor,
+            persistent_intermediate_buffer=persistent_intermediate_buffer,
+            persistent_output_buffer=persistent_output_buffer,
             dim=dim,
-            from_remote_multi_device_global_semaphore=from_remote_semaphore_handles,
-            to_remote_multi_device_global_semaphore=to_remote_semaphore_handles,
-            math_op=ttnn.ReduceType.Sum,
+            multi_device_global_semaphore=remote_semaphore_handles,
             num_links=num_reduce_scatter_links,
             memory_config=memory_config,
             topology=topology,

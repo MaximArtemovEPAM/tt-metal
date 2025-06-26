@@ -22,6 +22,7 @@ class MLP(LightweightModule):
         dtype,
         model_config,
         state_dict_prefix=None,
+        remote_semaphore_handles=None,
         from_remote_semaphore_handles=None,
         to_remote_semaphore_handles=None,
         worker_sub_device_id=None,
@@ -40,6 +41,8 @@ class MLP(LightweightModule):
         # If pading was applied (e.g. via env var), add the unpadded hidden dim to the cache name to avoid loading incorrect weights
         hidden_dim_string = f".hidden_dim_{args.hidden_dim}" if args.hidden_dim != args.unpadded_hidden_dim else ""
 
+        self.remote_semaphore_handles = remote_semaphore_handles
+        self.from_remote_semaphore_handles = remote_semaphore_handles
         self.from_remote_semaphore_handles = from_remote_semaphore_handles
         self.to_remote_semaphore_handles = to_remote_semaphore_handles
         self.worker_sub_device_id = worker_sub_device_id
@@ -234,8 +237,8 @@ class MLP(LightweightModule):
             core_grid=None,  # FIXME: validate on TG ttnn.CoreGrid(y=8, x=8) if not pc_2 else None,
         )
         ttnn.deallocate(w2_in)
-        # if mode == "decode" and not TG:
-        #     w2_out = ttnn.sharded_to_interleaved(w2_out, ttnn.DRAM_MEMORY_CONFIG)
+        if mode == "decode" and not TG:
+            w2_out = ttnn.sharded_to_interleaved(w2_out, ttnn.DRAM_MEMORY_CONFIG)
         print("reducing 224 mlp.py")
         # w2_out_reduced = tt_all_reduce(
         #     w2_out,
@@ -270,6 +273,7 @@ class MLP(LightweightModule):
             dtype=self.args.ccl_dtype,
             use_composite=True if self.dim == 8192 else False,
             topology=self.args.ccl_topology(),
+            remote_semaphore_handles=self.remote_semaphore_handles,
             from_remote_semaphore_handles=self.from_remote_semaphore_handles,
             to_remote_semaphore_handles=self.to_remote_semaphore_handles,
             worker_sub_device_id=self.worker_sub_device_id,

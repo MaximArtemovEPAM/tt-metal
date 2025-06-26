@@ -55,6 +55,9 @@ class Transformer(LightweightModule):
         # # create global semaphore handles
         self.from_remote_semaphore_handles = ttnn.create_global_semaphore(mesh_device, self.ccl_sub_device_crs, 0)
         self.to_remote_semaphore_handles = ttnn.create_global_semaphore(mesh_device, self.ccl_sub_device_crs, 0)
+        self.remote_semaphore_handles = [
+            ttnn.create_global_semaphore(mesh_device, self.ccl_sub_device_crs, 0) for i in range(3)
+        ]
         self.mesh_device.set_sub_device_stall_group([self.worker_sub_device_id])
         # print("USING FABRIC CCL")
 
@@ -88,6 +91,7 @@ class Transformer(LightweightModule):
                 transformation_mats=self.trans_mats_dict,
                 paged_attention_config=paged_attention_config,
                 use_paged_kv_cache=use_paged_kv_cache,
+                remote_semaphore_handles=self.remote_semaphore_handles,
                 from_remote_semaphore_handles=self.from_remote_semaphore_handles,
                 to_remote_semaphore_handles=self.to_remote_semaphore_handles,
                 worker_sub_device_id=self.worker_sub_device_id,
@@ -111,6 +115,9 @@ class Transformer(LightweightModule):
             ),
             args,
             args.is_galaxy,
+            from_remote_semaphore_handles=self.from_remote_semaphore_handles,
+            to_remote_semaphore_handles=self.to_remote_semaphore_handles,
+            worker_sub_device_id=self.worker_sub_device_id,
         )
 
         self.lm_head = LMHead(
