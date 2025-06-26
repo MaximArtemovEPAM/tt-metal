@@ -80,9 +80,9 @@ class ModelConfig:
         self.configs["WKV_A_OUT_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
 
         # wkv_b1
-        self.configs["WKV_B1_IN0_SHAPE"] = (self.bsz // DP, self.args.n_heads // TP, 1, self.args.qk_nope_head_dim)
+        self.configs["WKV_B1_IN0_SHAPE"] = (1, self.args.n_heads // TP, self.bsz // DP, self.args.qk_nope_head_dim)
         self.configs["WKV_B1_IN1_SHAPE"] = (
-            self.bsz // DP,
+            1,
             self.args.n_heads // TP,
             self.args.qk_nope_head_dim,
             self.args.kv_lora_rank,
@@ -95,9 +95,9 @@ class ModelConfig:
         self.configs["WKV_B1_OUT_MEM_CFG"] = ttnn.DRAM_MEMORY_CONFIG
 
         # wkv_b2
-        self.configs["WKV_B2_IN0_SHAPE"] = (self.bsz // DP, self.args.n_heads // TP, 1, self.args.kv_lora_rank)
+        self.configs["WKV_B2_IN0_SHAPE"] = (1, self.args.n_heads // TP, self.bsz // DP, self.args.kv_lora_rank)
         self.configs["WKV_B2_IN1_SHAPE"] = (
-            self.bsz // DP,
+            1,
             self.args.n_heads // TP,
             self.args.kv_lora_rank,
             self.args.v_head_dim,

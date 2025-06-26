@@ -158,16 +158,9 @@ class MLA_1D(AbstractModule):
         torch_weight = torch_weight.reshape(num_heads, -1, kv_lora_rank)
 
         torch_weight_k = torch_weight[:, :qk_nope_head_dim, :]  # [num_heads, qk_nope_head_dim, kv_lora_rank]
-        torch_weight_k = torch_weight_k.unsqueeze(0).repeat(
-            MLA_1D.MAX_BATCH_SIZE, 1, 1, 1
-        )  # [batch_size, num_heads, qk_nope_head_dim, kv_lora_rank]
-
         torch_weight_v = torch_weight[:, qk_nope_head_dim:, :].transpose(
             -2, -1
         )  # [num_heads, kv_lora_rank, v_head_dim]
-        torch_weight_v = torch_weight_v.unsqueeze(0).repeat(
-            MLA_1D.MAX_BATCH_SIZE, 1, 1, 1
-        )  # [batch_size, num_heads, kv_lora_rank, v_head_dim]
 
         # if num_devices == 1:
         #     torch_weight_k = torch_weight_k[: torch_weight_k.shape[0] // TG_GRID[0], ...]
@@ -516,9 +509,9 @@ class MLA_1D(AbstractModule):
         tt_q_rope = ttnn.slice(tt_q, [0, 0, 0, self.qk_nope_head_dim], [bsz, 1, self.num_heads, self.qk_head_dim])
 
         # wkv_b1
-        tt_q_nope = ttnn.permute(tt_q_nope, (0, 2, 1, 3))  # [bsz, num_heads, 1, qk_nope_head_dim]
-        tt_q_nope = ttnn.linear(tt_q_nope, **cfg["wkv_b1"])  # Expensive matmul (because replicated in batch)
-        tt_q_nope = ttnn.permute(tt_q_nope, (2, 0, 1, 3))  # [1, bsz, num_heads, qk_nope_head_dim]
+        tt_q_nope = ttnn.permute(tt_q_nope, (1, 2, 0, 3))  # [1, num_heads, bsz, qk_nope_head_dim]
+        tt_q_nope = ttnn.linear(tt_q_nope, **cfg["wkv_b1"])  # [1, num_heads, bsz, kv_lora_rank]
+        tt_q_nope = ttnn.permute(tt_q_nope, (0, 2, 1, 3))  # [1, bsz, num_heads, qk_nope_head_dim]
 
         # Q RoPE
         tt_q_rope = ttnn.permute(tt_q_rope, (1, 0, 2, 3))  # [1, bsz, num_heads, qk_rope_head_dim], should be no-op
@@ -582,10 +575,9 @@ class MLA_1D(AbstractModule):
         attn_out = ttnn.to_memory_config(attn_out, **cfg["flash_mla_out_reshard"])
 
         # wkv_b2
-        # Very expensive matmul, replicated in batch
-        attn_out = ttnn.permute(attn_out, (1, 2, 0, 3))  # [bsz, num_heads, 1, kv_lora_rank]
-        v_out = ttnn.linear(attn_out, **cfg["wkv_b2"])  # [bsz, num_heads, 1, v_head_dim]
-        v_out = ttnn.permute(v_out, (2, 0, 1, 3))  # [1, bsz, num_heads, v_head_dim]
+        attn_out = ttnn.permute(attn_out, (0, 2, 1, 3))  # [1, num_heads, bsz, kv_lora_rank]
+        v_out = ttnn.linear(attn_out, **cfg["wkv_b2"])  # [1, num_heads, bsz, v_head_dim]
+        v_out = ttnn.permute(v_out, (0, 2, 1, 3))  # [1, bsz, num_heads, v_head_dim]
 
         # wo
         v_out = ttnn.reshape(v_out, (1, 1, bsz, self.num_heads * self.v_head_dim))
