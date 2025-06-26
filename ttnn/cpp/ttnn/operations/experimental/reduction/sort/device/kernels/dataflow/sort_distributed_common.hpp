@@ -91,6 +91,26 @@ void sort_noc_exchange_tiles(
     }
 }
 
+void sort_noc_barrier(
+    uint32_t this_core_id,
+    uint32_t coordinator_core_id,
+    sem_ptr_t sem_self_ptr,
+    uint64_t sem_barrier_coordinator_addr,
+    uint64_t sem_barrier_mcast_addr,
+    uint32_t number_of_peers) {
+    if (this_core_id == coordinator_core_id) {
+        noc_semaphore_set_multicast_loopback_src(coordinator_core_id, sem_barrier_mcast_addr, number_of_peers);
+
+        noc_semaphore_wait(sem_self_ptr, number_of_peers - 1);
+        noc_semaphore_set(sem_self_ptr, 0);
+    } else {
+        noc_semaphore_inc(sem_barrier_coordinator_addr, 1);
+
+        noc_semaphore_wait(sem_self_ptr, 1);
+        noc_semaphore_set(sem_self_ptr, 0);
+    }
+}
+
 uint32_t ilog2(uint32_t n) {
     return 32 - __builtin_clz(n);  // note: clz will be more than 1 instruction on rv32iy
 }

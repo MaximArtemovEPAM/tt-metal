@@ -111,6 +111,13 @@ void kernel_main() {
     const uint32_t other_core1_x = get_arg_val<uint32_t>(7);
     const uint32_t other_core1_y = get_arg_val<uint32_t>(8);
 
+    const uint32_t start_core_x = get_arg_val<uint32_t>(9);
+    const uint32_t start_core_y = get_arg_val<uint32_t>(10);
+    const uint32_t end_core_x = get_arg_val<uint32_t>(11);
+    const uint32_t end_core_y = get_arg_val<uint32_t>(12);
+    const uint32_t coordinator_core_x = get_arg_val<uint32_t>(13);
+    const uint32_t coordinator_core_y = get_arg_val<uint32_t>(14);
+
     // Compile time args
     constexpr uint32_t value_tensor_cb_index = get_compile_time_arg_val(0);
     constexpr uint32_t index_tensor_cb_index = get_compile_time_arg_val(1);
@@ -123,15 +130,32 @@ void kernel_main() {
     constexpr uint32_t Wt_per_core = get_compile_time_arg_val(7);
     constexpr uint32_t Ht = get_compile_time_arg_val(8);
     constexpr uint32_t total_number_of_cores = get_compile_time_arg_val(9);
-    constexpr uint32_t num_cores_y = get_compile_time_arg_val(10);
-    constexpr uint32_t intercore_stages = get_compile_time_arg_val(11);
-    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(12);
-    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(13);
-    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(14));
+    constexpr uint32_t num_cores_x = get_compile_time_arg_val(10);
+    constexpr uint32_t num_cores_y = get_compile_time_arg_val(11);
+    constexpr uint32_t intercore_stages = get_compile_time_arg_val(12);
+    constexpr uint32_t compute_with_storage_grid_size_x = get_compile_time_arg_val(13);
+    constexpr uint32_t compute_with_storage_grid_size_y = get_compile_time_arg_val(14);
+    const uint32_t sem_value_addr = get_semaphore(get_compile_time_arg_val(15));
+    const uint32_t sem_barrier_addr = get_semaphore(get_compile_time_arg_val(16));
+
+    const uint64_t sem_barrier_coordinator_core_addr =
+        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
+
+    // Only relevant for coordinator core
+    const uint64_t sem_barrier_mcast_addr =
+        get_noc_multicast_addr(start_core_x, start_core_y, end_core_x, end_core_y, sem_barrier_addr);
+
+    const uint64_t sem_barrier_coordinator_addr =
+        get_noc_addr(coordinator_core_x, coordinator_core_y, sem_barrier_addr);
+
+    sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
+    sem_ptr_t sem_self_barrier_ptr = reinterpret_cast<sem_ptr_t>(sem_barrier_addr);
 
     const uint32_t this_core_id =
         compute_core_id(this_core_x, this_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
 
+    const uint32_t coordinator_core_id = compute_core_id(
+        coordinator_core_x, coordinator_core_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
     const uint32_t other_core0_id = compute_core_id(
         other_core0_x, other_core0_y, compute_with_storage_grid_size_x, compute_with_storage_grid_size_y);
     const uint32_t other_core1_id = compute_core_id(
@@ -171,7 +195,6 @@ void kernel_main() {
             generate_index_tile_dummy(index_tensor_cb_index, w);
         }  // Wt loop
 
-        sem_ptr_t sem_self_value_other_ptr = reinterpret_cast<sem_ptr_t>(sem_value_addr);
         const uint32_t value_tensor_other_tile_size_bytes = get_tile_size(value_tensor_other_cb_index);
 
         // uint32_t stages = ilog2(Wt / Wt_per_core);
@@ -209,28 +232,29 @@ void kernel_main() {
 
                 // Wait for Compute for complete
                 // Use sync_with_writer_cb as barrier
-                DPRINT << TERM_WRITER << "[Writer] synchronizing with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] synchronizing with compute"
+                       << ", core stage = " << core_stage << ", sub = " << sub << TERM_RESET << ENDL();
                 cb_wait_front(sync_with_writer_cb_index, one_tile);
                 cb_pop_front(sync_with_writer_cb_index, one_tile);
-                DPRINT << TERM_WRITER << "[Writer] synchronizeed with compute" << TERM_RESET << ENDL();
+                DPRINT << TERM_WRITER << "[Writer] synchronized with compute" << TERM_RESET << ENDL();
 
                 // DPRINT << TERM_WRITER << "[Writer] waiting for compute..." << TERM_RESET << ENDL();
                 DPRINT << TERM_WRITER << "[Writer] stage #" << core_stage << ", sub = " << sub_dist << ", "
                        << this_core_id << " -> " << other_core_id << TERM_RESET << ENDL();
 
                 for (uint32_t w = w_start; w < w_start + Wt_per_core; w++) {
-                    cb_wait_front(input_tensor_transposed_cb_index, one_tile);
-                    const uint32_t l1_read_ptr = get_read_ptr(input_tensor_transposed_cb_index);
+                    DPRINT << TERM_WRITER << "[Writer] wait front value_tensor_cb_index (" << value_tensor_cb_index
+                           << ")" << TERM_RESET << ENDL();
+                    cb_wait_front(value_tensor_cb_index, one_tile);
+                    const uint32_t l1_read_ptr = get_read_ptr(value_tensor_cb_index);
 
+                    DPRINT << TERM_WRITER << "[Writer] reserve back other value " << TERM_RESET << ENDL();
                     cb_reserve_back(value_tensor_other_cb_index, one_tile);  // TOFIX: Deadlock
+
                     uint32_t input_other_cb_write_addr = get_write_ptr(value_tensor_other_cb_index);
                     uint64_t input_other_noc_addr = get_noc_addr(other_core_x, other_core_y, input_other_cb_write_addr);
 
-                    // DPRINT << TERM_WRITER << "[Writer] exchanging tile #" << (w - w_start) << "/" << Wt_per_core << "
-                    // with "
-                    //        << other_core_id << " (self = " << this_core_id << ")"
-                    //        << ", sem_self = " << sem_value_noc_addr << " (" << sem_value_addr
-                    //        << "), sem_other_noc = " << sem_value_other_noc_addr << TERM_RESET << ENDL();
+                    DPRINT << TERM_WRITER << "[Writer] calling sort_noc_exchange_tiles" << TERM_RESET << ENDL();
                     sort_noc_exchange_tiles(
                         this_core_id,
                         other_core_id,
@@ -242,17 +266,22 @@ void kernel_main() {
 
                     constexpr uint32_t DEBUG_PRINT_LEN = 8;  // only print first 8 elements
 
-                    // DPRINT << TERM_WRITER
-                    //        << "[Writer] sending other tile back to compute, other_cb = " <<
-                    //        value_tensor_other_cb_index
-                    //        << TERM_RESET << ENDL();
-                    // DPRINT << TERM_WRITER << "[Writer] tile [" << w << "] = " << TERM_RESET << ENDL();
-                    // print_row_bf16(reinterpret_cast<uint16_t*>(input_other_cb_write_addr), DEBUG_PRINT_LEN);
-
+                    DPRINT << TERM_WRITER << "[Writer] cb push back value" << TERM_RESET << ENDL();
                     cb_push_back(value_tensor_other_cb_index, one_tile);
 
-                    cb_pop_front(input_tensor_transposed_cb_index, one_tile);
+                    DPRINT << TERM_WRITER << "[Writer] cb push back input" << TERM_RESET << ENDL();
+                    cb_pop_front(value_tensor_cb_index, one_tile);
+                    DPRINT << TERM_WRITER << "[Writer] send tile to compute, core stage = " << core_stage
+                           << ", sub = " << sub << ", w = " << w << TERM_RESET << ENDL();
                 }  // Wt loop
+
+                sort_noc_barrier(
+                    this_core_id,
+                    coordinator_core_id,
+                    sem_self_barrier_ptr,
+                    sem_barrier_coordinator_addr,
+                    sem_barrier_mcast_addr,
+                    num_cores_x);
 
                 DPRINT << TERM_WRITER << "[Writer] <- " << other_core_id << TERM_RESET << ENDL();
             }  // core_stage

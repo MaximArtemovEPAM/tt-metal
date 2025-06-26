@@ -12,6 +12,8 @@
 #include "llk_io_unpack.h"
 #endif
 
+#include "waypoint.h"
+
 namespace ckernel {
 
 // clang-format off
@@ -39,7 +41,7 @@ namespace ckernel {
  * */
 // clang-format on
 ALWI void cb_wait_front(uint32_t cbid, uint32_t ntiles) {
-    WAYPOINT("CBWF");
+    UNPACK(WAYPOINT("CBWF"));
     UNPACK((llk_wait_tiles(cbid, ntiles)));
 }
 
@@ -73,7 +75,10 @@ ALWI void cb_wait_front(uint32_t cbid, uint32_t ntiles) {
  * | ntiles    | The number of tiles to be popped     | uint32_t | It must be less or equal than the size of the CB (the total number of tiles that fit into the CB) | True     |
  */
 // clang-format on
-ALWI void cb_pop_front(uint32_t cbid, uint32_t ntiles) { UNPACK((llk_pop_tiles(cbid, ntiles))); }
+ALWI void cb_pop_front(uint32_t cbid, uint32_t ntiles) {
+    UNPACK(WAYPOINT("CBPF"));
+    UNPACK((llk_pop_tiles(cbid, ntiles)));
+}
 
 // clang-format off
 /**
@@ -91,6 +96,7 @@ ALWI void cb_pop_front(uint32_t cbid, uint32_t ntiles) { UNPACK((llk_pop_tiles(c
  */
 // clang-format on
 ALWI void cb_reserve_back(uint32_t cbid, uint32_t ntiles) {
+    PACK(WAYPOINT("CBRB"));
     PACK((llk_wait_for_free_tiles<false, false, false>(cbid, ntiles)));
 }
 
@@ -124,7 +130,10 @@ ALWI void cb_reserve_back(uint32_t cbid, uint32_t ntiles) {
  * | ntiles    | The number of tiles to be pushed     | uint32_t | It must be less or equal than the size of the CB (the total number of tiles that fit into the CB) | True     |
  */
 // clang-format on
-ALWI void cb_push_back(uint32_t cbid, uint32_t ntiles) { PACK((llk_push_tiles<false, false>(cbid, ntiles))); }
+ALWI void cb_push_back(uint32_t cbid, uint32_t ntiles) {
+    PACK(WAYPOINT("CBPB"));
+    PACK((llk_push_tiles<false, false>(cbid, ntiles)));
+}
 
 // clang-format off
 /**

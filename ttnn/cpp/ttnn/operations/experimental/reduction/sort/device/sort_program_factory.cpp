@@ -674,14 +674,17 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     CoreRangeSet core_range;
     const uint32_t CORE_COUNT = 4;
     const uint32_t Wt_per_core = Wt / CORE_COUNT;
+    const uint32_t num_cores_x = CORE_COUNT;
     const uint32_t num_cores_y = 1;
     const uint32_t intercore_stages = ilog2(CORE_COUNT);
 
     std::cout << "Intercore stages = " << intercore_stages << std::endl;
 
+    constexpr CoreCoord start_core_coord = CoreCoord(0, 0);
+    constexpr CoreCoord end_core_coord = CoreCoord(CORE_COUNT - 1, 0);
+
     if (Wt > 1) {
-        core_range =
-            CoreRangeSet(CoreRange(CoreCoord(0, 0), CoreCoord(CORE_COUNT - 1, 0)));  // only use two cores for now
+        core_range = CoreRangeSet(CoreRange(start_core_coord, end_core_coord));  // only use two cores for now
     } else {
         core_range = CoreRangeSet(CoreCoord(0, 0));
     }
@@ -712,6 +715,8 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
     // Semaphore setup
     const uint32_t sem_value_id = CreateSemaphore(program, core_range, 0);
     const uint32_t sem_index_id = CreateSemaphore(program, core_range, 0);
+    const uint32_t sem_reader_barrier_id = CreateSemaphore(program, core_range, 0);
+    const uint32_t sem_writer_barrier_id = CreateSemaphore(program, core_range, 0);
 
     // Circular buffers
     constexpr uint32_t input_tensor_cb_index = tt::CBIndex::c_0;
@@ -808,11 +813,13 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         Wt_per_core,
         Ht,
         total_number_of_cores,
+        num_cores_x,
         num_cores_y,
         intercore_stages,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
-        sem_index_id};
+        sem_index_id,
+        sem_reader_barrier_id};
     const std::string reader_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
         "reader_single_row_multi_core_distributed.cpp";
@@ -837,11 +844,13 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
         Wt_per_core,
         Ht,
         total_number_of_cores,
+        num_cores_x,
         num_cores_y,
         intercore_stages,
         compute_with_storage_grid_size.x,
         compute_with_storage_grid_size.y,
-        sem_value_id};
+        sem_value_id,
+        sem_writer_barrier_id};
     const std::string writer_kernel_path =
         "ttnn/cpp/ttnn/operations/experimental/reduction/sort/device/kernels/dataflow/"
         "writer_single_row_multi_core_distributed.cpp";
@@ -911,6 +920,10 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
 
         uint32_t logical_core_id = core_id;
 
+        constexpr uint32_t COORDINATOR_CORE = 0;
+        const uint32_t coordinator_core_x = physical_coords[COORDINATOR_CORE].x;
+        const uint32_t coordinator_core_y = physical_coords[COORDINATOR_CORE].y;
+
         SetRuntimeArgs(
             program,
             reader_kernel_id,
@@ -924,7 +937,13 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coords[stage1_peer].x,
              physical_coords[stage1_peer].y,
              physical_coords[stage2_peer].x,
-             physical_coords[stage2_peer].y});
+             physical_coords[stage2_peer].y,
+             start_core_coord.x,
+             start_core_coord.y,
+             end_core_coord.x,
+             end_core_coord.y,
+             coordinator_core_x,
+             coordinator_core_y});
         SetRuntimeArgs(
             program,
             writer_kernel_id,
@@ -937,7 +956,13 @@ SortProgramFactorySingleRowMulticoreDistributed::create(
              physical_coords[stage1_peer].x,
              physical_coords[stage1_peer].y,
              physical_coords[stage2_peer].x,
-             physical_coords[stage2_peer].y});
+             physical_coords[stage2_peer].y,
+             start_core_coord.x,
+             start_core_coord.y,
+             end_core_coord.x,
+             end_core_coord.y,
+             coordinator_core_x,
+             coordinator_core_y});
         SetRuntimeArgs(program, compute_kernel_id, cores[core_id], {all_core_utilization_loop_count, logical_core_id});
     }  // CORE_COUNT
 
