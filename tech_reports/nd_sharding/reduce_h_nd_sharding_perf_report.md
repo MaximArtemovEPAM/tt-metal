@@ -1,4 +1,5 @@
 # Reduce h op nd sharding performance
+[**Performance table**](https://docs.google.com/spreadsheets/d/12XUDufWVvtvFxiGo-ZpCbj47jZCsOxjeYr-CHPiZgzQ/edit?usp=sharing)
 
 ## Algorithm overview
 A simple sum-reduction over H dimensions (-2).
@@ -50,7 +51,7 @@ Vizualization of tiles read order:
 
 
 ## Performance issues and fixes
-[**Performance table**](https://docs.google.com/spreadsheets/d/12XUDufWVvtvFxiGo-ZpCbj47jZCsOxjeYr-CHPiZgzQ/edit?gid=0#gid=0)
+[**Performance table**](https://docs.google.com/spreadsheets/d/12XUDufWVvtvFxiGo-ZpCbj47jZCsOxjeYr-CHPiZgzQ/edit?usp=sharing)
 
 To avoid copying whe whole table in this doc, we'l track performance of `256x512 64 shards on 64 cores` case (tensor shape: (1, 1, 256, 32768), shard shape: (1, 1, 256, 512))
 
