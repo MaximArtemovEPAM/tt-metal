@@ -2,6 +2,8 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 
 import torch
@@ -20,6 +22,7 @@ def test_example(device):
     expected_output = torch_input * torch_other
 
     for x in range(1000):
+        os.environ["UNOPS"] = str(x + 24)
         print("iter", x)
         tt_input = ttnn.from_torch(torch_input, layout=ttnn.TILE_LAYOUT, device=device)
         tt_other = ttnn.from_torch(torch_other, layout=ttnn.TILE_LAYOUT, device=device)

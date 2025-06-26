@@ -52,6 +52,8 @@ void MAIN {
     // Variables
     constexpr uint32_t input_dst_reg = 0;
 
+    add_trisc_nops<UNOPS, MNOPS, PNOPS>();
+
     binary_op_init_common(cb_in, cb_other, cb_out);
 
     tile_regs_acquire();
@@ -62,8 +64,6 @@ void MAIN {
     UNPACK(tt::compute::common::print_full_tile(cb_in, 0, false);)
     UNPACK(tt::compute::common::print_full_tile(cb_other, 0, false);)
 #endif
-
-    add_trisc_nops<UNOPS, MNOPS, PNOPS>();
 
 #ifdef DEB
     dprint_tensix_dest_reg(0);
@@ -86,7 +86,7 @@ void MAIN {
 
     cb_wait_front(cb_out, 1);
 
-#ifdef EN
+#ifdef DEB
     UNPACK(tt::compute::common::print_full_tile(cb_in, 0, false);)
     UNPACK(tt::compute::common::print_full_tile(cb_other, 0, false);)
 
