@@ -173,7 +173,10 @@ void MAIN {
                         DeviceZoneScopedN("wait_in0");
                         cb_wait_front(in0_cb_id, in0_block_num_tiles);
                     }
-                    cb_wait_front(in1_cb_id, in1_block_num_tiles);
+                    {
+                        DeviceZoneScopedN("wait_in1");
+                        cb_wait_front(in1_cb_id, in1_block_num_tiles);
+                    }
 
                     int in0_index_subblock_offset = 0;
                     for (uint32_t in0_subblock = 0; in0_subblock < in0_num_subblocks; in0_subblock++) {

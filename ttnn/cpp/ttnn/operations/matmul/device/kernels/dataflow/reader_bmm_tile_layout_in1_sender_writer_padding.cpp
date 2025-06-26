@@ -212,6 +212,7 @@ void kernel_main() {
                 uint32_t in1_tensor_current_inner_dim_block_start_tile_id = in1_tensor_current_w_dim_block_tile_id;
 
                 for (uint32_t block = 0; block < num_blocks_inner_dim; ++block) {
+                    DeviceZoneScopedN("weights_block");
                     if constexpr (fuse_op) {
                         fused_op_receiver.update_current_block_start_tile_id(
                             block, in1_tensor_current_inner_dim_block_start_tile_id, in1_tensor_start_tile_id);
