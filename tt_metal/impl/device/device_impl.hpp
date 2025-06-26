@@ -220,7 +220,7 @@ private:
     void mark_allocations_safe();
 
     CoreCoord physical_worker_core_from_logical_core(const CoreCoord &logical_core) const;
-    CoreCoord dram_core_from_dram_channel(uint32_t dram_channel) const;
+    CoreCoord dram_core_from_dram_channel(uint32_t dram_channel, uint8_t noc = 0) const;
     CoreCoord virtual_core_from_physical_core(const CoreCoord& physical_coord) const;
 
     chip_id_t id_;

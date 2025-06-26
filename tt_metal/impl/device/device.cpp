@@ -1277,11 +1277,11 @@ uint32_t Device::num_sub_devices() const {
     return sub_device_manager_tracker_->get_active_sub_device_manager()->num_sub_devices();
 }
 
-CoreCoord Device::dram_core_from_dram_channel(uint32_t dram_channel) const {
+CoreCoord Device::dram_core_from_dram_channel(uint32_t dram_channel, uint8_t noc) const {
     return tt::tt_metal::MetalContext::instance()
         .get_cluster()
         .get_soc_desc(id_)
-        .get_preferred_worker_core_for_dram_view(dram_channel);
+        .get_preferred_worker_core_for_dram_view(dram_channel, noc);
 }
 
 CoreCoord Device::logical_core_from_dram_channel(uint32_t dram_channel) const {
@@ -1451,12 +1451,9 @@ void Device::generate_device_bank_to_noc_tables()
 {
     const auto& allocator = this->allocator();
     const size_t num_dram_banks = allocator->get_num_banks(BufferType::DRAM);
-    std::vector<CoreCoord> dram_noc_coord_per_bank(num_dram_banks);
     dram_bank_offset_map_.clear();
     dram_bank_offset_map_.resize(num_dram_banks);
     for (unsigned bank_id = 0; bank_id < num_dram_banks; bank_id++) {
-        auto physical_dram_core = this->dram_core_from_dram_channel(allocator->get_dram_channel_from_bank_id(bank_id));
-        dram_noc_coord_per_bank[bank_id] = physical_dram_core;
         dram_bank_offset_map_[bank_id] = allocator->get_bank_offset(BufferType::DRAM, bank_id);
     }
     const size_t num_l1_banks = allocator->get_num_banks(BufferType::L1);
@@ -1473,18 +1470,20 @@ void Device::generate_device_bank_to_noc_tables()
 
     const auto& hal = MetalContext::instance().hal();
     dram_bank_to_noc_xy_.clear();
-    dram_bank_to_noc_xy_.reserve(hal.get_num_nocs() * dram_noc_coord_per_bank.size());
+    dram_bank_to_noc_xy_.reserve(hal.get_num_nocs() * num_dram_banks);
     bool dram_is_virtualized = hal.get_virtualized_core_types().find(AddressableCoreType::DRAM) !=
                                hal.get_virtualized_core_types().end();
     for (unsigned int noc = 0; noc < hal.get_num_nocs(); noc++) {
-        for (unsigned int bank_id = 0; bank_id < dram_noc_coord_per_bank.size(); bank_id++) {
+        for (unsigned int bank_id = 0; bank_id < num_dram_banks; bank_id++) {
+            auto virtual_dram_core =
+                this->dram_core_from_dram_channel(allocator->get_dram_channel_from_bank_id(bank_id), noc);
             uint16_t noc_x, noc_y;
             if (dram_is_virtualized) {
-                noc_x = dram_noc_coord_per_bank[bank_id].x;
-                noc_y = dram_noc_coord_per_bank[bank_id].y;
+                noc_x = virtual_dram_core.x;
+                noc_y = virtual_dram_core.y;
             } else {
-                noc_x = hal.noc_coordinate(noc, soc_d.grid_size.x, dram_noc_coord_per_bank[bank_id].x);
-                noc_y = hal.noc_coordinate(noc, soc_d.grid_size.y, dram_noc_coord_per_bank[bank_id].y);
+                noc_x = hal.noc_coordinate(noc, soc_d.grid_size.x, virtual_dram_core.x);
+                noc_y = hal.noc_coordinate(noc, soc_d.grid_size.y, virtual_dram_core.y);
             }
             uint16_t xy = ((noc_y << hal.get_noc_addr_node_id_bits()) | noc_x) << hal.get_noc_coord_reg_offset();
             dram_bank_to_noc_xy_.push_back(xy);
@@ -1592,7 +1591,7 @@ std::vector<CoreCoord> Device::get_optimal_dram_bank_to_logical_worker_assignmen
             tt::tt_metal::MetalContext::instance().get_cluster().get_soc_desc(this->id());
         std::vector<CoreCoord> dram_phy_coords;
         for (int i = 0; i < num_dram_banks; ++i) {
-            auto dram_core = dram_core_from_dram_channel(i);
+            auto dram_core = this->dram_core_from_dram_channel(i);
             if (dram_is_virtualized) {
                 tt::umd::CoreCoord umd_dram_coord = soc_d.translate_coord_to(
                     tt_xy_pair(dram_core.x, dram_core.y), CoordSystem::TRANSLATED, CoordSystem::PHYSICAL);
