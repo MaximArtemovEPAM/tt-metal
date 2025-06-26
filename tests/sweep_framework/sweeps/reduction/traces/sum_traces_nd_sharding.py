@@ -67,6 +67,7 @@ def run_sum(device, params):
         nd_shard_spec=ttnn.NdShardSpec(
             (1, 1, h, shard_w),
             ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(end_x, end_y))}),
+            ttnn.ShardOrientation.COL_MAJOR,
         ),
     )
     # Interleaved configs for potential comparsion
