@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -86,6 +86,6 @@ TEST_F(DPrintFixture, TensixTestPrintHanging) {
     // Since the dprint server exited with an exception, detach manually
     auto num_devices = tt::tt_metal::GetNumAvailableDevices();
     for (unsigned int id = 0; id < num_devices; id++) {
-        DprintServerDetach(id);
+        MetalContext::instance().dprint_server()->detach_device(id);
     }
 }

@@ -6,10 +6,7 @@
 
 #include <gtest/gtest.h>
 #include "debug/watcher_server.hpp"
-#include "dispatch_fixture.hpp"
 #include "tt_metal/tt_metal/common/dispatch_fixture.hpp"
-
-#include "dprint_server.hpp"
 
 namespace tt::tt_metal {
 
@@ -38,7 +35,7 @@ public:
         // Only difference is that we need to wait for the print server to catch
         // up after running a test.
         DebugToolsFixture::RunProgram(device, program);
-        DprintServerAwait();
+        MetalContext::instance().dprint_server()->await();
     }
 
 protected:
@@ -74,7 +71,7 @@ protected:
         ExtraTearDown();
 
         // If test induced a watcher error, re-initialize the context.
-        if (DPrintServerHangDetected()) {
+        if (MetalContext::instance().dprint_server()->hang_detected()) {
             MetalContext::instance().reinitialize();
         }
 
@@ -99,8 +96,8 @@ protected:
         IDevice* device
     ) {
         DebugToolsFixture::RunTestOnDevice(run_function, device);
-        DPrintServerClearLogFile();
-        DPrintServerClearSignals();
+        MetalContext::instance().dprint_server()->clear_log_file();
+        MetalContext::instance().dprint_server()->clear_signals();
     }
 
     // Override this function in child classes for additional setup commands between DPRINT setup
