@@ -32,7 +32,7 @@ def get_byte_count(tensor):
 WH_DRAM_THROUGHPUT = 256  # bytes/ns
 
 
-def get_rooofline_message(tensors, throughput=WH_DRAM_THROUGHPUT):
+def get_roofline_message(tensors, throughput=WH_DRAM_THROUGHPUT):
     byte_count = 0
     for tensor in tensors:
         byte_count += get_byte_count(tensor)
@@ -54,7 +54,7 @@ def update_check_result(check_result, messages):
 
 def get_run_return(torch_output_tensor, output_tensor, expected_pcc, tensors, e2e_perf, flop_counts=None):
     check_result = check_with_pcc(torch_output_tensor, output_tensor, expected_pcc)
-    messages = [get_rooofline_message(tensors)]
+    messages = [get_roofline_message(tensors)]
     if flop_counts:
         messages.append(f"FLOP_COUNT {get_product(flop_counts)}")
     updated_check_result = update_check_result(check_result, messages)
