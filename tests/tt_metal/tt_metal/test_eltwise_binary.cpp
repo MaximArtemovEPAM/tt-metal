@@ -36,6 +36,7 @@
 #include "test_gold_impls.hpp"
 #include <tt-metalium/tt_backend_api_types.hpp>
 #include <tt-metalium/tt_metal.hpp>
+#include "test_common.hpp"
 
 namespace tt {
 namespace tt_metal {
@@ -51,6 +52,14 @@ using namespace tt::tt_metal;
 // TODO: explain what test does
 //////////////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char** argv) {
+    std::vector<std::string> input_args(argv, argv + argc);
+    uint32_t num_iter = 1;
+    std::tie(num_iter, input_args) = test_args::get_command_option_uint32_and_remaining_args(input_args, "--iter", 1);
+
+    uint32_t num_tiles = 0;
+    std::tie(num_tiles, input_args) =
+        test_args::get_command_option_uint32_and_remaining_args(input_args, "--num_tiles", 1);
+
     if (getenv("TT_METAL_SLOW_DISPATCH_MODE") != nullptr) {
         TT_THROW("Test not supported w/ slow dispatch, exiting");
     }
@@ -76,6 +85,7 @@ int main(int argc, char** argv) {
     for (auto eltwise_op : ops) {
         log_info(LogTest, "====================================================================");
         log_info(LogTest, "======= Running eltwise_binary test for op={}", op_id_to_op_name[eltwise_op]);
+        log_info(LogTest, "Running {} iterations with number of tiles = {}", num_iter, num_tiles);
 
         try {
             ////////////////////////////////////////////////////////////////////////////
@@ -87,7 +97,7 @@ int main(int argc, char** argv) {
             CoreCoord core = {0, 0};
 
             uint32_t single_tile_size = 2 * 1024;
-            uint32_t num_tiles = 512;
+            // uint32_t num_tiles = 512;
             uint32_t dram_buffer_size =
                 single_tile_size * num_tiles;  // num_tiles of FP16_B, hard-coded in the reader/writer kernels
             uint32_t page_size = single_tile_size;
@@ -199,16 +209,16 @@ int main(int argc, char** argv) {
 
             // SetRuntimeArgs(program, unary_writer_kernel, core, writer_args);
             // SetRuntimeArgs(program, binary_reader_kernel, core, reader_args);
-
-            EnqueueProgram(cq, program, false);
-            std::vector<uint32_t> result_vec;
-            EnqueueReadBuffer(cq, dst_dram_buffer, result_vec, true);
+            for (int i = 0; i < num_iter; i++) {
+                EnqueueProgram(cq, program, false);
+                std::vector<uint32_t> result_vec;
+                EnqueueReadBuffer(cq, dst_dram_buffer, result_vec, true);
+                pass &= (src0_vec == result_vec);
+            }
 
             ////////////////////////////////////////////////////////////////////////////
             //                      Validation & Teardown
             ////////////////////////////////////////////////////////////////////////////
-
-            pass &= (src0_vec == result_vec);
 
         } catch (const std::exception& e) {
             pass = false;
@@ -218,7 +228,7 @@ int main(int argc, char** argv) {
             log_error(LogTest, "System error message: {}", std::strerror(errno));
         }
     }  // for EltwiseOp::all()
-
+    Finish(cq);
     detail::DumpDeviceProfileResults(device);
     pass &= tt_metal::CloseDevice(device);
 
