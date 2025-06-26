@@ -156,3 +156,9 @@ As shown in [this PR](https://github.com/tenstorrent/tt-metal/pull/22929), `get_
 
 ## Reusing 2d-sharded reader kernel
 TODO: Should align perf with 2d sharding
+
+
+### Reproduce benchmark results
+```bash
+tt_metal/tools/profiler/profile_this.py -c 'pytest tests/sweep_framework/sweeps/reduction/traces/sum_traces_nd_sharding.py::test_default'
+```
