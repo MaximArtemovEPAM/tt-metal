@@ -45,7 +45,7 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
     tt_metal::IDevice* device = a.device();
 
     bool in_sharded = a.is_sharded();
-    bool use_nd_sharding = in_sharded && !a.shard_spec().has_value();
+    bool use_nd_sharding = in_sharded && a.nd_shard_spec().has_value();
     bool out_sharded = output.is_sharded();
     auto compute_with_storage_grid_size = device->compute_with_storage_grid_size();
     uint32_t num_cores_x = compute_with_storage_grid_size.x;
@@ -145,16 +145,17 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
             int aligned_page_size = src0_buffer->aligned_page_size();
             const auto input_buffer_distribution_spec = src0_buffer->buffer_distribution_spec().value();
             const auto input_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
-                *device->get_mesh_device().get(), input_buffer_distribution_spec, src0_buffer->core_type());
+                *device->get_mesh_device().get(),
+                input_buffer_distribution_spec,
+                src0_buffer->core_type(),
+                ArgConfig::CTA);
             reader_defines["USE_ND_SHARDING"] = "1";
             reader_compile_time_args.push_back((uint32_t)tile_elements);
             reader_compile_time_args.push_back(aligned_page_size);
-            reader_compile_time_args.push_back(input_sharded_accessor_args.rank);
-            reader_compile_time_args.push_back(input_sharded_accessor_args.num_banks);
             reader_compile_time_args.insert(
                 reader_compile_time_args.end(),
-                input_sharded_accessor_args.shapes_and_bank_coords.cbegin(),
-                input_sharded_accessor_args.shapes_and_bank_coords.cend());
+                input_sharded_accessor_args.compile_time_args.cbegin(),
+                input_sharded_accessor_args.compile_time_args.cend());
         }
 
         reader_kernel_id = tt_metal::CreateKernel(
@@ -184,18 +185,14 @@ operation::ProgramWithCallbacks reduce_multi_core_h(
         const auto output_buffer_distribution_spec = dst_buffer->buffer_distribution_spec().value();
         const auto output_bank_base_address = output.mesh_buffer()->address();
         const auto output_sharded_accessor_args = tt::tt_metal::sharded_accessor_utils::get_sharded_accessor_args(
-            *device->get_mesh_device().get(), output_buffer_distribution_spec, dst_buffer->core_type());
+            *device->get_mesh_device().get(), output_buffer_distribution_spec, dst_buffer->core_type(), ArgConfig::CTA);
 
         std::vector<uint32_t> writer_compile_time_args = {
-            output_cb_index,
-            (uint32_t)output_tile_elements,
-            output_aligned_page_size,
-            output_sharded_accessor_args.rank,
-            output_sharded_accessor_args.num_banks};
+            output_cb_index, (uint32_t)output_tile_elements, output_aligned_page_size};
         writer_compile_time_args.insert(
             writer_compile_time_args.end(),
-            output_sharded_accessor_args.shapes_and_bank_coords.cbegin(),
-            output_sharded_accessor_args.shapes_and_bank_coords.cend());
+            output_sharded_accessor_args.compile_time_args.cbegin(),
+            output_sharded_accessor_args.compile_time_args.cend());
         writer_kernel_id = CreateKernel(
             program,
             "ttnn/cpp/ttnn/operations/reduction/generic/device/kernels/dataflow/writer_unary_nd_shard_start_id.cpp",

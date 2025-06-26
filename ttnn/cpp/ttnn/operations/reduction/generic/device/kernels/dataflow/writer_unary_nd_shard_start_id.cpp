@@ -13,12 +13,9 @@ void kernel_main() {
     constexpr tt::CBIndex cb_id_out = static_cast<tt::CBIndex>(get_compile_time_arg_val(0));
     constexpr uint32_t tile_elements = get_compile_time_arg_val(1);
     constexpr uint32_t page_size = get_compile_time_arg_val(2);
-    constexpr uint32_t rank = get_compile_time_arg_val(3);
-    constexpr uint32_t num_banks = get_compile_time_arg_val(4);
-    constexpr uint32_t arg_index = 5;
-    using output_dspec = distribution_spec_t<arg_index, rank, num_banks>;
-    auto sharded_accessor = ShardedAccessor<output_dspec, page_size>{.bank_base_address = bank_base_address};
-
+    constexpr uint32_t arg_index = 3;
+    auto sharding_args = nd_sharding::make_args<arg_index>(0);
+    auto sharded_accessor = nd_sharding::make_sharded_accessor_from_args(sharding_args, bank_base_address, page_size);
     // single-tile ublocks
     constexpr uint32_t onetile = 1;
     const uint32_t tile_bytes = get_tile_size(cb_id_out);

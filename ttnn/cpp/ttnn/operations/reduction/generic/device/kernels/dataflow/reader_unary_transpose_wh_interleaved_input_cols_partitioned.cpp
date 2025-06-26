@@ -38,12 +38,9 @@ void kernel_main() {
 #ifdef USE_ND_SHARDING
     constexpr uint32_t tile_elements = get_compile_time_arg_val(6);
     constexpr uint32_t page_size = get_compile_time_arg_val(7);
-    constexpr uint32_t rank = get_compile_time_arg_val(8);
-    constexpr uint32_t num_banks = get_compile_time_arg_val(9);
-    constexpr uint32_t arg_index = 10;
-    using input_dspec = distribution_spec_t<arg_index, rank, num_banks>;
-
-    auto sharded_accessor = ShardedAccessor<input_dspec, page_size>{.bank_base_address = bank_base_address};
+    constexpr uint32_t arg_index = 8;
+    auto sharding_args = nd_sharding::make_args<arg_index>(0);
+    auto sharded_accessor = nd_sharding::make_sharded_accessor_from_args(sharding_args, bank_base_address, page_size);
 #else
     const InterleavedAddrGenFast<src_is_dram> s = {
         .bank_base_address = src_addr, .page_size = tile_bytes, .data_format = data_format};
