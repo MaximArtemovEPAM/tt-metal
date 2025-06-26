@@ -43,3 +43,10 @@ Use the following command to run the performant Model with Trace+2CQs:
 ```
 pytest --disable-warnings models/experimental/yolov11/tests/test_e2e_performant.py
 ```
+### Performant Demo with Trace+2CQ
+
+Use the following command to run the performant Demo with Trace+2CQs:
+
+```
+pytest --disable-warnings models/experimental/yolov11/demo/demo.py::test_demo
+```
