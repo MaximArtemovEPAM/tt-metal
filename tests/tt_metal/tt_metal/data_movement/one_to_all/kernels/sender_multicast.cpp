@@ -16,6 +16,7 @@ void kernel_main() {
     constexpr uint32_t num_subordinates = get_compile_time_arg_val(6);
     constexpr uint32_t total_transaction_size_bytes = get_compile_time_arg_val(7);
     constexpr bool linked = get_compile_time_arg_val(8);
+    constexpr bool loopback = get_compile_time_arg_val(9);
 
     uint32_t semaphore = get_semaphore(get_arg_val<uint32_t>(0));
     uint32_t start_x = get_arg_val<uint32_t>(1);
@@ -30,13 +31,23 @@ void kernel_main() {
     {
         DeviceZoneScopedN("RISCV0");
         for (uint32_t i = 0; i < num_of_transactions - 1; i++) {
-            noc_async_write_multicast_loopback_src(
-                src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, linked);
+            if constexpr (loopback) {
+                noc_async_write_multicast_loopback_src(
+                    src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, linked);
+            } else {
+                noc_async_write_multicast(
+                    src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, linked);
+            }
         }
         // Last packet is sent separately to unlink the transaction, so the next one can use the VC and do its own path
         // reservation
-        noc_async_write_multicast_loopback_src(
-            src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, false);
+        if constexpr (loopback) {
+            noc_async_write_multicast_loopback_src(
+                src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, false);
+        } else {
+            noc_async_write_multicast(
+                src_addr, dst_noc_addr_multicast, transaction_size_bytes, num_subordinates, false);
+        }
         noc_async_write_barrier();
     }
 

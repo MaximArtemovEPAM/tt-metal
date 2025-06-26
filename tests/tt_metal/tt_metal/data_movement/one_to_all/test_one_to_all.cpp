@@ -49,9 +49,6 @@ bool run_dm(IDevice* device, const OneToAllConfig& test_config) {
     // Program
     Program program = CreateProgram();
 
-    if (test_config.is_multicast) {
-        assert(test_config.loopback);
-    }
     if (!test_config.is_multicast) {
         assert(!test_config.is_linked);
     }
@@ -113,15 +110,8 @@ bool run_dm(IDevice* device, const OneToAllConfig& test_config) {
         (uint32_t)test_config.test_id,
         (uint32_t)num_subordinates,
         (uint32_t)total_sender_size_bytes,
-        (uint32_t)test_config.is_linked};
-
-    vector<uint32_t> receiver_compile_args = {
-        (uint32_t)master_l1_byte_address,
-        (uint32_t)subordinate_l1_byte_address,
-        (uint32_t)test_config.num_of_transactions,
-        (uint32_t)test_config.transaction_size_pages,
-        (uint32_t)test_config.page_size_bytes,
-        (uint32_t)test_config.test_id};
+        (uint32_t)test_config.is_linked,
+        (uint32_t)test_config.loopback};
 
     // Kernels
     auto sender_kernel = CreateKernel(
@@ -139,7 +129,7 @@ bool run_dm(IDevice* device, const OneToAllConfig& test_config) {
     const uint32_t sem_id = CreateSemaphore(program, sem_core_set, 0);
 
     // Runtime Arguments
-    std::vector<uint32_t> master_run_args = {sem_id, start_coord.x, start_coord.y, end_coord.x, end_coord.y};
+    vector<uint32_t> master_run_args = {sem_id, start_coord.x, start_coord.y, end_coord.x, end_coord.y};
     for (auto& core : sub_core_list) {
         if (!test_config.loopback &&
             (core.x == test_config.master_core_coord.x && core.y == test_config.master_core_coord.y)) {
@@ -328,27 +318,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticast2x2PacketSizes) {
     NOC noc_id = NOC::NOC_0;
     bool is_linked = false;
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 3,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 3,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
@@ -366,27 +359,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticast5x5PacketSizes) {
     NOC noc_id = NOC::NOC_0;
     bool is_linked = false;
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 4,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 4,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
@@ -411,27 +407,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticast11x10PacketSizes) {
         grid_size = {smaller_dim, smaller_dim};
     }
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 5,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 5,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
@@ -449,27 +448,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastLinked2x2PacketSizes) {
     NOC noc_id = NOC::NOC_0;
     bool is_linked = true;
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 6,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 6,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
@@ -487,27 +489,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastLinked5x5PacketSizes) {
     NOC noc_id = NOC::NOC_0;
     bool is_linked = true;
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 7,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 7,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
@@ -532,27 +537,30 @@ TEST_F(DeviceFixture, TensixDataMovementOneToAllMulticastLinked11x10PacketSizes)
         grid_size = {smaller_dim, smaller_dim};
     }
 
-    for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
-        for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
-             transaction_size_pages *= 2) {
-            // Test config
-            unit_tests::dm::core_to_all::OneToAllConfig test_config = {
-                .test_id = unit_tests::dm::core_to_all::START_ID + 8,
-                .master_core_coord = master_core_coord,
-                .grid_size = grid_size,
-                .num_of_transactions = num_of_transactions,
-                .transaction_size_pages = transaction_size_pages,
-                .page_size_bytes = page_size_bytes,
-                .l1_data_format = DataFormat::Float16_b,
-                .loopback = true,
-                .noc_id = noc_id,
-                .is_multicast = true,
-                .is_linked = is_linked,
-            };
+    for (uint32_t l = 0; l < 2; l++) {
+        bool loopback = (l == 1);  // fully test loopback = false, then loopback = true
+        for (uint32_t num_of_transactions = 1; num_of_transactions <= max_transactions; num_of_transactions *= 4) {
+            for (uint32_t transaction_size_pages = 1; transaction_size_pages <= max_transaction_size_pages;
+                 transaction_size_pages *= 2) {
+                // Test config
+                unit_tests::dm::core_to_all::OneToAllConfig test_config = {
+                    .test_id = unit_tests::dm::core_to_all::START_ID + 8,
+                    .master_core_coord = master_core_coord,
+                    .grid_size = grid_size,
+                    .num_of_transactions = num_of_transactions,
+                    .transaction_size_pages = transaction_size_pages,
+                    .page_size_bytes = page_size_bytes,
+                    .l1_data_format = DataFormat::Float16_b,
+                    .loopback = loopback,
+                    .noc_id = noc_id,
+                    .is_multicast = true,
+                    .is_linked = is_linked,
+                };
 
-            // Run
-            for (unsigned int id = 0; id < num_devices_; id++) {
-                EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                // Run
+                for (unsigned int id = 0; id < num_devices_; id++) {
+                    EXPECT_TRUE(run_dm(devices_.at(id), test_config));
+                }
             }
         }
     }
