@@ -39,7 +39,7 @@ void kernel_main() {
     constexpr uint32_t tile_elements = get_compile_time_arg_val(6);
     constexpr uint32_t page_size = get_compile_time_arg_val(7);
     constexpr uint32_t arg_index = 8;
-    auto sharding_args = nd_sharding::make_args<arg_index>(0);
+    auto sharding_args = nd_sharding::make_args<arg_index, 4>();
     auto sharded_accessor = nd_sharding::make_sharded_accessor_from_args(sharding_args, bank_base_address, page_size);
 #else
     const InterleavedAddrGenFast<src_is_dram> s = {
@@ -62,6 +62,11 @@ void kernel_main() {
     // reset_col_start - resets col_start_tile_id to the starting column
     // reset_w - resets w to the column number in the batch of the starting column
     // reset_curr_id - resets curr_id to the next tile in the starting column
+
+    // #ifdef USE_ND_SHARDING
+    //     auto start_addr = sharded_accessor.get_noc_addr(col_start_tile_id);
+    //     auto shard_width = sharded_accessor.dspec().shard_shape()[sharded_accessor.dspec().rank() - 1];
+    // #endif
     for (uint32_t i = 0; i < num_cols; i += row_chunk) {
         uint32_t chunk_end = std::min(i + row_chunk, num_cols);
         uint32_t curr_id = col_start_tile_id;
@@ -80,6 +85,7 @@ void kernel_main() {
                 uint32_t l1_write_addr = get_write_ptr(cb_id_in0);
 #ifdef USE_ND_SHARDING
                 uint64_t curr_noc_addr = sharded_accessor.get_noc_addr(curr_id);
+                // uint64_t curr_noc_addr = start_addr + (k + j * shard_width) * page_size;
                 noc_async_read(curr_noc_addr, l1_write_addr, tile_bytes);
 #else
                 noc_async_read_tile(curr_id, s, l1_write_addr);
