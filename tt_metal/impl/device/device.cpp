@@ -728,7 +728,7 @@ void Device::initialize_and_launch_firmware() {
     core_info->worker_grid_size_y = this->logical_grid_size().y;
 
     // Download to worker cores
-    log_debug(tt::LogMetal, "Initializing firmware");
+    log_info(tt::LogMetal, "Initializing firmware");
     CoreCoord grid_size = this->logical_grid_size();
     std::unordered_set<CoreCoord> not_done_cores;
 
@@ -811,14 +811,14 @@ void Device::initialize_and_launch_firmware() {
 
     // Wait until fw init is done, ensures the next launch msg doesn't get
     // written while fw is still in init
-    log_debug(tt::LogMetal, "Waiting for firmware init complete");
+    log_info(tt::LogMetal, "Waiting for firmware init complete");
     const int timeout_ms = 10000; // 10 seconds for now
     try {
         llrt::internal_::wait_until_cores_done(this->id(), RUN_MSG_INIT, not_done_cores, timeout_ms);
     } catch (std::runtime_error &e) {
         TT_THROW("Device {} init: failed to initialize FW! Try resetting the board.", this->id());
     }
-    log_debug(tt::LogMetal, "Firmware init complete");
+    log_info(tt::LogMetal, "Firmware init complete");
 }
 
 void Device::clear_l1_state() {
