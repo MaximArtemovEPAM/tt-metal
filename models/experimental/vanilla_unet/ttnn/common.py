@@ -187,12 +187,13 @@ class ConvSplit:
         *,
         act_block_h=None,
         reshard=False,
-        deallocate=False,
+        deallocate=True,
         height_sharding=True,
         activation="",
         dtype=ttnn.bfloat16,
         auto_shard=True,
         split_factor=2,
+        device=None,
     ) -> None:
         self.split_factor = split_factor
         self.weights = parameters["weight"]
@@ -212,25 +213,21 @@ class ConvSplit:
         )
         if auto_shard:
             self.shard_layout = None
+        self.split_input_channels = self.weights.shape[1] // self.split_factor
+        self.split_weight_tensors = ttnn.split(
+            self.weights, self.split_input_channels, 1, memory_config=ttnn.L1_MEMORY_CONFIG
+        )
+        for i in range(self.split_factor):
+            self.split_weight_tensors[i] = ttnn.from_device(self.split_weight_tensors[i])
 
-    def __call__(self, device, input_tensor):
-        input_channels = input_tensor.shape[3]
-        assert input_channels % self.split_factor == 0
-        split_input_channels = input_channels // self.split_factor
-
-        split_input_tensors = ttnn.split(input_tensor, split_input_channels, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
-        ttnn.deallocate(input_tensor)
-        self.weights = ttnn.from_torch(self.weights, dtype=ttnn.bfloat16, device=device)
-        split_weight_tensors = ttnn.split(self.weights, split_input_channels, 1, memory_config=ttnn.L1_MEMORY_CONFIG)
-
-        compute_config = ttnn.init_device_compute_kernel_config(
+        self.compute_config = ttnn.init_device_compute_kernel_config(
             device.arch(),
             math_fidelity=ttnn.MathFidelity.LoFi,
             math_approx_mode=True,
             fp32_dest_acc_en=False,
             packer_l1_acc=False,
         )
-        conv_config = ttnn.Conv2dConfig(
+        self.conv_config = ttnn.Conv2dConfig(
             dtype=self.dtype,
             weights_dtype=ttnn.bfloat16,
             activation=self.activation,
@@ -240,17 +237,22 @@ class ConvSplit:
             output_layout=ttnn.TILE_LAYOUT,
         )
         if self.act_block_h is not None:
-            conv_config.act_block_h_override = self.act_block_h
-        tt_weight_tensor = split_weight_tensors
+            self.conv_config.act_block_h_override = self.act_block_h
+
+    def __call__(self, device, input_tensor):
+        split_input_tensors = ttnn.split(
+            input_tensor, self.split_input_channels, 3, memory_config=ttnn.L1_MEMORY_CONFIG
+        )
+
         for i in range(self.split_factor):
             input_tensor = split_input_tensors[i]
-            tt_weight_tensor[i] = ttnn.from_device(tt_weight_tensor[i])
-            tt_output_tensor_on_device, [_out_height, _out_width], [self.weights, self.bias] = ttnn.conv2d(
+
+            tt_output_tensor_on_device, [_out_height, _out_width], [weight, bias] = ttnn.conv2d(
                 input_tensor=input_tensor,
-                weight_tensor=tt_weight_tensor[i],
+                weight_tensor=self.split_weight_tensors[i],
                 bias_tensor=None,
                 in_channels=input_tensor.shape[3],
-                out_channels=tt_weight_tensor[i].shape[0],
+                out_channels=self.split_weight_tensors[i].shape[0],
                 device=device,
                 kernel_size=self.kernel_size,
                 stride=(self.conv_params[0], self.conv_params[1]),
@@ -258,8 +260,8 @@ class ConvSplit:
                 batch_size=input_tensor.shape[0],
                 input_height=input_tensor.shape[1],
                 input_width=input_tensor.shape[2],
-                conv_config=conv_config,
-                compute_config=compute_config,
+                conv_config=self.conv_config,
+                compute_config=self.compute_config,
                 groups=self.groups,
                 return_output_dim=True,
                 return_weights_and_bias=True,
@@ -277,6 +279,6 @@ class ConvSplit:
 
             del _out_height, _out_width
             ttnn.deallocate(split_input_tensors[i])
-            ttnn.deallocate(split_weight_tensors[i])
+            ttnn.deallocate(self.split_weight_tensors[i])
 
         return output_tensor

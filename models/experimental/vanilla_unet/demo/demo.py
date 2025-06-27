@@ -11,9 +11,9 @@ import torch
 from tqdm import tqdm
 
 import ttnn
-from models.experimental.functional_vanilla_unet.demo import demo_utils
-from models.experimental.functional_vanilla_unet.reference.unet import UNet
-from models.experimental.functional_vanilla_unet.ttnn.ttnn_unet import TtUnet
+from models.experimental.vanilla_unet.demo import demo_utils
+from models.experimental.vanilla_unet.reference.unet import UNet
+from models.experimental.vanilla_unet.ttnn.ttnn_unet import TtUnet
 from models.utility_functions import run_for_wormhole_b0
 from ttnn.model_preprocessing import fold_batch_norm2d_into_conv2d, preprocess_model_parameters
 
@@ -121,14 +121,11 @@ def create_custom_preprocessor(device):
 @pytest.mark.parametrize("use_torch_model", [False])
 @run_for_wormhole_b0()
 def test_unet_demo_single_image(device, reset_seeds, model_location_generator, use_torch_model):
-    # https://github.com/tenstorrent/tt-metal/issues/23269
-    device.disable_and_clear_program_cache()
-
-    weights_path = "models/experimental/functional_vanilla_unet/unet.pt"
+    weights_path = "models/experimental/vanilla_unet/unet.pt"
     if not os.path.exists(weights_path):
-        os.system("bash models/experimental/functional_vanilla_unet/weights_download.sh")
+        os.system("bash models/experimental/vanilla_unet/weights_download.sh")
 
-    pred_dir = "models/experimental/functional_vanilla_unet/demo/pred"
+    pred_dir = "models/experimental/vanilla_unet/demo/pred"
     # Create the directory if it doesn't exist
     if not os.path.exists(pred_dir):
         os.makedirs(pred_dir)
@@ -136,17 +133,17 @@ def test_unet_demo_single_image(device, reset_seeds, model_location_generator, u
     args = argparse.Namespace(
         device="cpu",  # Choose "cpu" or "cuda:0" based on your setup
         batch_size=1,
-        weights="models/experimental/functional_vanilla_unet/unet.pt",  # Path to the pre-trained model weights
-        image="models/experimental/functional_vanilla_unet/demo/images/TCGA_CS_4944_20010208_1.tif",  # Path to your input image
-        mask="models/experimental/functional_vanilla_unet/demo/images/TCGA_CS_4944_20010208_1_mask.tif",  # Path to your input mask
+        weights="models/experimental/vanilla_unet/unet.pt",  # Path to the pre-trained model weights
+        image="models/experimental/vanilla_unet/demo/images/TCGA_CS_4944_20010208_1.tif",  # Path to your input image
+        mask="models/experimental/vanilla_unet/demo/images/TCGA_CS_4944_20010208_1_mask.tif",  # Path to your input mask
         image_size=(480, 640),  # Resize input image to this size
-        predictions="models/experimental/functional_vanilla_unet/demo/pred",  # Directory to save prediction results
+        predictions="models/experimental/vanilla_unet/demo/pred",  # Directory to save prediction results
     )
 
     loader = demo_utils.data_loader(args)  # loader will load just a single image
 
     state_dict = torch.load(
-        "models/experimental/functional_vanilla_unet/unet.pt",
+        "models/experimental/vanilla_unet/unet.pt",
         map_location=torch.device("cpu"),
     )
     ds_state_dict = {k: v for k, v in state_dict.items()}
@@ -207,10 +204,10 @@ def test_unet_demo_single_image(device, reset_seeds, model_location_generator, u
 @pytest.mark.parametrize("use_torch_model", [False])
 @run_for_wormhole_b0()
 def test_unet_demo_imageset(device, reset_seeds, model_location_generator, use_torch_model):
-    weights_path = "models/experimental/functional_vanilla_unet/unet.pt"
+    weights_path = "models/experimental/vanilla_unet/unet.pt"
     if not os.path.exists(weights_path):
-        os.system("bash models/experimental/functional_vanilla_unet/weights_download.sh")
-    pred_dir = "models/experimental/functional_vanilla_unet/demo/pred_image_set"
+        os.system("bash models/experimental/vanilla_unet/weights_download.sh")
+    pred_dir = "models/experimental/vanilla_unet/demo/pred_image_set"
     # Create the directory if it doesn't exist
     if not os.path.exists(pred_dir):
         os.makedirs(pred_dir)
@@ -218,15 +215,15 @@ def test_unet_demo_imageset(device, reset_seeds, model_location_generator, use_t
     args = argparse.Namespace(
         device="cpu",  # Choose "cpu" or "cuda:0" based on your setup
         batch_size=1,
-        weights="models/experimental/functional_vanilla_unet/unet.pt",  # Path to the pre-trained model weights
-        images="models/experimental/functional_vanilla_unet/demo/imageset",  # Path to your input image
+        weights="models/experimental/vanilla_unet/unet.pt",  # Path to the pre-trained model weights
+        images="models/experimental/vanilla_unet/demo/imageset",  # Path to your input image
         image_size=(480, 640),  # Resize input image to this size
-        predictions="models/experimental/functional_vanilla_unet/demo/pred_image_set",  # Directory to save prediction results
+        predictions="models/experimental/vanilla_unet/demo/pred_image_set",  # Directory to save prediction results
     )
 
     loader = demo_utils.data_loader_imageset(args)
     state_dict = torch.load(
-        "models/experimental/functional_vanilla_unet/unet.pt",
+        "models/experimental/vanilla_unet/unet.pt",
         map_location=torch.device("cpu"),
     )
     ds_state_dict = {k: v for k, v in state_dict.items()}

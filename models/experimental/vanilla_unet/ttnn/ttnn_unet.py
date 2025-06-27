@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ttnn
-from models.experimental.functional_vanilla_unet.ttnn.common import Conv, ConvTranspose, ConvSplit
+from models.experimental.vanilla_unet.ttnn.common import Conv, ConvTranspose, ConvSplit
 
 
 class TtUnet:
@@ -109,7 +109,7 @@ class TtUnet:
         self.upconv1 = ConvTranspose(
             [2, 2, 0, 0], parameters["upconv1"], act_block_h=32, output_layout=ttnn.TILE_LAYOUT
         )
-        self.dec1_1 = ConvSplit([1, 1, 1, 1], parameters["decoder1"][0], auto_shard=True)
+        self.dec1_1 = ConvSplit([1, 1, 1, 1], parameters["decoder1"][0], auto_shard=True, device=device)
         self.dec1_2 = Conv(
             [1, 1, 1, 1],
             parameters["decoder1"][1],
@@ -129,7 +129,20 @@ class TtUnet:
         )
 
     def __call__(self, device, input_tensor):
-        enc1 = self.enc1_1(device, input_tensor)
+        N, C, H, W = input_tensor.shape
+        min_channels = 16  # Padding from image channels (3) to min channels (16)
+        if C < min_channels:
+            channel_padding_needed = min_channels - C
+            nchw = ttnn.pad(input_tensor, ((0, 0), (0, channel_padding_needed), (0, 0), (0, 0)), value=0.0)
+        else:
+            nchw = input_tensor
+        nhwc = ttnn.permute(nchw, (0, 2, 3, 1))
+        ttnn.deallocate(nchw)
+        ttnn.deallocate(input_tensor)
+        nhwc = ttnn.reallocate(nhwc)
+
+        enc1 = self.enc1_1(device, nhwc)
+        enc1 = ttnn.to_memory_config(enc1, ttnn.DRAM_MEMORY_CONFIG)
         enc1 = self.enc1_2(device, enc1)  # 0.9992
 
         pool_in = ttnn.reshape(enc1, (1, 1, enc1.shape[0] * enc1.shape[1] * enc1.shape[2], enc1.shape[3]))
@@ -253,7 +266,6 @@ class TtUnet:
             [dec3, enc3], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG
         )  # 0.993 # after using shard concat pcc dropper to 0.9439684514680566
         ttnn.deallocate(enc3)
-
         dec3 = self.dec3_1(device, dec3)  # 0.9892
         dec3 = self.dec3_2(device, dec3)  # 0.98766
 
@@ -273,7 +285,6 @@ class TtUnet:
 
         dec2 = self.dec2_1(device, dec2)
         dec2 = self.dec2_2(device, dec2)  # 0.995
-
         dec1 = self.upconv1(device, dec2)
         ttnn.deallocate(dec2)
         dec1 = ttnn.to_layout(dec1, ttnn.ROW_MAJOR_LAYOUT)
