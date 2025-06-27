@@ -404,34 +404,14 @@ public:
     Impl(llrt::RunTimeOptions& rtoptions);
     ~Impl();
 
-    // Sets whether the print server is muted. Calling this function while a kernel is running may
-    // result in a loss of print data.
+    // Implementation of DPrintServer public functions
     void set_mute(bool mute_print_server) { mute_print_server_ = mute_print_server; }
-
-    // Waits for the print server to finish processing any current print data.
     void await();
-
-    // Attaches a device to be monitored by the print server.
-    // This device should not already be attached.
     void attach_device(chip_id_t device_id);
-
-    // Detaches a device from being monitored by the print server.
-    // This device must have been attached previously.
-    void detach_device(chip_id_t device_id);
-
-    // Clears the log file of a currently-running print server.
+    void detach_devices();
     void clear_log_file();
-
-    // Clears any raised signals (so they can be used again in a later run).
     void clear_signals();
-
     bool reads_dispatch_cores(chip_id_t device_id) { return device_reads_dispatch_cores_[device_id]; }
-
-    // Check whether a print hand has been detected by the server.
-    // The print server tries to determine if a core is stalled due to the combination of (1) a WAIT
-    // print command and (2) no new print data coming through. An invalid WAIT command and the print
-    // buffer filling up afterwards can cause the core to spin forever. In this case this function will
-    // return true and the print server will be terminated.
     bool hang_detected() { return server_killed_due_to_hang_; }
 
 private:
@@ -509,6 +489,9 @@ private:
     // Returns the stream that the dprint data should be output to. Can be auto-generated files, the user-selected file,
     // stdout, or nothing.
     ostream* get_output_stream(const RiscKey& risc_key);
+
+    // Helper function to detach a single device
+    void detach_device(chip_id_t device_id);
 
     // Stores the last value of setw, so that array elements can reuse the width.
     char most_recent_setw = 0;
@@ -751,18 +734,19 @@ void DPrintServer::Impl::attach_device(chip_id_t device_id) {
     log_info(tt::LogMetal, "DPRINT Server attached device {}", device_id);
 }  // attach_device
 
-void DPrintServer::Impl::detach_device(chip_id_t device_id) {
-    // Don't detach the device if it's disabled by env vars - in this case it wasn't attached.
-    const auto& rtoptions = tt_metal::MetalContext::instance().rtoptions();
-    std::vector<chip_id_t> chip_ids = rtoptions.get_feature_chip_ids(tt::llrt::RunTimeDebugFeatureDprint);
-    if (!rtoptions.get_feature_all_chips(tt::llrt::RunTimeDebugFeatureDprint)) {
-        if (std::find(chip_ids.begin(), chip_ids.end(), device_id) == chip_ids.end()) {
-            // If a chip is present that is not enabled now, still need to remove it
-            device_to_core_range_.erase(device_id);
-            return;
-        }
+void DPrintServer::Impl::detach_devices() {
+    // Make a copy of devices to detach, since we'll be modiying device_to_core_range_A
+    std::set<chip_id_t> devices_to_detach;
+    for (const auto& id_and_core_range : device_to_core_range_) {
+        devices_to_detach.insert(id_and_core_range.first);
     }
 
+    for (chip_id_t device_id : devices_to_detach) {
+        detach_device(device_id);
+    }
+}
+
+void DPrintServer::Impl::detach_device(chip_id_t device_id) {
     // When we detach a device, we should poll to make sure there's no outstanding prints.
     chip_id_t chip_id = device_id;
     bool outstanding_prints = true;
@@ -1323,7 +1307,7 @@ DPrintServer::~DPrintServer() = default;
 void DPrintServer::set_mute(bool mute_print_server) { impl_->set_mute(mute_print_server); }
 void DPrintServer::await() { impl_->await(); }
 void DPrintServer::attach_device(chip_id_t device_id) { impl_->attach_device(device_id); }
-void DPrintServer::detach_device(chip_id_t device_id) { impl_->detach_device(device_id); }
+void DPrintServer::detach_devices() { impl_->detach_devices(); }
 void DPrintServer::clear_log_file() { impl_->clear_log_file(); }
 void DPrintServer::clear_signals() { impl_->clear_signals(); }
 bool DPrintServer::reads_dispatch_cores(chip_id_t device_id) { return impl_->reads_dispatch_cores(device_id); }

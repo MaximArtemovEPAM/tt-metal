@@ -189,11 +189,14 @@ void MetalContext::teardown() {
     // Set internal routing to false to exit active ethernet FW & go back to base FW
     cluster_->set_internal_routing_info_for_ethernet_cores(false);
 
+    if (dprint_server_) {
+        dprint_server_->detach_devices();
+        dprint_server_.reset();
+        rtoptions_.set_disable_dma_ops(false);
+    }
+
     auto all_devices = cluster_->all_chip_ids();
     for (chip_id_t device_id : all_devices) {
-        if (dprint_server_) {
-            dprint_server_->detach_device(device_id);
-        }
         watcher_detach(device_id);
         assert_cores(device_id);
 
@@ -204,10 +207,6 @@ void MetalContext::teardown() {
         if (mem_map) {
             mem_map.reset();
         }
-    }
-    if (dprint_server_) {
-        dprint_server_.reset();
-        rtoptions_.set_disable_dma_ops(false);
     }
     dispatch_query_manager_.reset();
     dispatch_core_manager_.reset();

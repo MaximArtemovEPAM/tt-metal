@@ -31,9 +31,8 @@ public:
     // This device should not already be attached.
     void attach_device(chip_id_t device_id);
 
-    // Detaches a device from being monitored by the print server.
-    // This device must have been attached previously.
-    void detach_device(chip_id_t device_id);
+    // Detach all devices from the print server
+    void detach_devices();
 
     // Clears the log file of a currently-running print server.
     void clear_log_file();

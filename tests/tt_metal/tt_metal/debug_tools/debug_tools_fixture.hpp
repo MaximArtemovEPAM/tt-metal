@@ -70,11 +70,11 @@ protected:
         DebugToolsFixture::TearDown();
         ExtraTearDown();
 
-        // If test induced a watcher error, re-initialize the context.
-        if (MetalContext::instance().dprint_server()->hang_detected()) {
+        // If test induced a dprint error, re-initialize the context. If the test brought down the whole server/context,
+        // then no need to do this since it'll re-init for the next test.
+        if (MetalContext::instance().dprint_server() and MetalContext::instance().dprint_server()->hang_detected()) {
             MetalContext::instance().reinitialize();
         }
-
 
         // Reset DPrint settings
         tt::tt_metal::MetalContext::instance().rtoptions().set_feature_cores(tt::llrt::RunTimeDebugFeatureDprint, {});
