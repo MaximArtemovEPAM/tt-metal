@@ -63,3 +63,20 @@ class ReshardConfig(ConfigBase):
     """Simple config for operations that only need memory configuration"""
 
     memory_config: ttnn.MemoryConfig
+
+
+@dataclass
+class AllGatherConfig(ConfigBase):
+    cluster_axis: int
+    dim: int
+    num_links: int
+    topology: ttnn.Topology
+
+
+@dataclass
+class RMSNormConfig(ConfigBase):
+    """RMSNorm config"""
+
+    epsilon: float
+    weight: ttnn.Tensor | Path | None = None
+    compute_kernel_config: ttnn.DeviceComputeKernelConfig | None = None

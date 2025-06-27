@@ -8,6 +8,7 @@ import ttnn
 
 # Constants
 TILE_SIZE = 32
+NORM_CATEGRIES = {"decoder", "q_norm", "k_norm"}
 
 
 # Compute kernel configurations
