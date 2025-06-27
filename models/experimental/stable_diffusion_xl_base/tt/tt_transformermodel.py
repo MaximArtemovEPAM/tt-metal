@@ -15,18 +15,7 @@ from models.experimental.stable_diffusion_xl_base.tt.sdxl_utility import (
 
 
 class TtTransformer2DModel(nn.Module):
-    def __init__(
-        self,
-        device,
-        state_dict,
-        module_path,
-        model_config,
-        query_dim,
-        num_attn_heads,
-        out_dim,
-        attention_weights_dtype=ttnn.bfloat16,
-        ff_weights_dtype=ttnn.bfloat16,
-    ):
+    def __init__(self, device, state_dict, module_path, model_config, query_dim, num_attn_heads, out_dim):
         super().__init__()
 
         self.device = device
@@ -50,8 +39,6 @@ class TtTransformer2DModel(nn.Module):
                     query_dim,
                     num_attn_heads,
                     out_dim,
-                    attention_weights_dtype=attention_weights_dtype,
-                    ff_weights_dtype=ff_weights_dtype,
                 )
             )
 
@@ -60,7 +47,9 @@ class TtTransformer2DModel(nn.Module):
         self.gamma_t, self.beta_t = prepare_gn_beta_gamma(device, norm_weights, norm_bias, self.norm_core_grid.y)
         self.input_mask = prepare_gn_mask(self.device, norm_weights.shape[0], self.norm_groups, self.norm_core_grid.y)
 
-        proj_weights_dtype = attention_weights_dtype  # keep this same as attention weights dtype at the moment
+        proj_weights_dtype = (
+            model_config.attention_weights_dtype
+        )  # keep this same as attention weights dtype at the moment
         weights = state_dict[f"{module_path}.proj_in.weight"].unsqueeze(0).unsqueeze(0)
         bias = state_dict[f"{module_path}.proj_in.bias"]
         self.tt_weights_in, self.tt_bias_in = prepare_linear_params(device, weights, bias, proj_weights_dtype)

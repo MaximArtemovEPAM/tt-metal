@@ -7,13 +7,21 @@ import re
 
 
 class ModelOptimisations:
-    def __init__(self, conv_act_dtype=ttnn.bfloat16, conv_w_dtype=ttnn.bfloat16):
+    def __init__(
+        self,
+        conv_act_dtype=ttnn.bfloat16,
+        conv_w_dtype=ttnn.bfloat16,
+        attention_weights_dtype=ttnn.bfloat16,
+        ff_weights_dtype=ttnn.bfloat8_b,
+    ):
         self.conv_configs = {}
         self.matmul_configs = {}
         self.compute_configs = {}
         self.prepared_weights = False
         self.conv_w_dtype = conv_w_dtype
         self.conv_ws_dtype = ttnn.bfloat8_b
+        self.attention_weights_dtype = attention_weights_dtype
+        self.ff_weights_dtype = ff_weights_dtype
 
         # HEIGHT SHARDED
         self.conv_configs["ABH_256_ADB"] = ttnn.Conv2dConfig(

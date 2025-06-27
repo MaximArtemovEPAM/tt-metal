@@ -32,8 +32,6 @@ class TtUNet2DConditionModel(nn.Module):
         state_dict,
         module_path,
         model_config,
-        attention_weights_dtype=ttnn.bfloat16,
-        ff_weights_dtype=ttnn.bfloat16,
     ):
         super().__init__()
 
@@ -50,10 +48,10 @@ class TtUNet2DConditionModel(nn.Module):
 
         # Initialze embeddings with attention_weights_dtype for the time being.
         self.time_embedding = TtTimestepEmbedding(
-            device, state_dict, "time_embedding", linear_weights_dtype=attention_weights_dtype
+            device, state_dict, "time_embedding", linear_weights_dtype=model_config.attention_weights_dtype
         )
         self.add_embedding = TtTimestepEmbedding(
-            device, state_dict, "add_embedding", linear_weights_dtype=attention_weights_dtype
+            device, state_dict, "add_embedding", linear_weights_dtype=model_config.attention_weights_dtype
         )
 
         self.down_blocks = []
@@ -68,8 +66,6 @@ class TtUNet2DConditionModel(nn.Module):
                 10,
                 640,
                 True,
-                attention_weights_dtype=attention_weights_dtype,
-                ff_weights_dtype=ff_weights_dtype,
             )
         )
         self.down_blocks.append(
@@ -82,8 +78,6 @@ class TtUNet2DConditionModel(nn.Module):
                 20,
                 1280,
                 False,
-                attention_weights_dtype=attention_weights_dtype,
-                ff_weights_dtype=ff_weights_dtype,
             )
         )
 
@@ -95,8 +89,6 @@ class TtUNet2DConditionModel(nn.Module):
             1280,
             20,
             1280,
-            attention_weights_dtype=attention_weights_dtype,
-            ff_weights_dtype=ff_weights_dtype,
         )
 
         self.up_blocks = []
@@ -110,8 +102,6 @@ class TtUNet2DConditionModel(nn.Module):
                 20,
                 1280,
                 True,
-                attention_weights_dtype=attention_weights_dtype,
-                ff_weights_dtype=ff_weights_dtype,
             )
         )
         self.up_blocks.append(
@@ -124,8 +114,6 @@ class TtUNet2DConditionModel(nn.Module):
                 10,
                 640,
                 True,
-                attention_weights_dtype=attention_weights_dtype,
-                ff_weights_dtype=ff_weights_dtype,
             )
         )
         self.up_blocks.append(TtUpBlock2D(device, state_dict, "up_blocks.2", model_config))

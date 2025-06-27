@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch.nn as nn
-import ttnn
 from models.experimental.stable_diffusion_xl_base.tt.tt_transformermodel import TtTransformer2DModel
 from models.experimental.stable_diffusion_xl_base.tt.tt_resnetblock2d import TtResnetBlock2D
 
@@ -18,8 +17,6 @@ class TtUNetMidBlock2DCrossAttn(nn.Module):
         query_dim,
         num_attn_heads,
         out_dim,
-        attention_weights_dtype=ttnn.bfloat16,
-        ff_weights_dtype=ttnn.bfloat16,
     ):
         super().__init__()
 
@@ -38,8 +35,6 @@ class TtUNetMidBlock2DCrossAttn(nn.Module):
                     query_dim,
                     num_attn_heads,
                     out_dim,
-                    attention_weights_dtype=attention_weights_dtype,
-                    ff_weights_dtype=ff_weights_dtype,
                 )
             )
 

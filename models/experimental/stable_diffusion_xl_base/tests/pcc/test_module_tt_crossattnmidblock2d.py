@@ -20,9 +20,6 @@ from models.experimental.stable_diffusion_xl_base.tests.test_common import SDXL_
         ((1, 1280, 32, 32), (1, 1280), (1, 77, 2048), 1280, 20, 1280),
     ],
 )
-@pytest.mark.parametrize("attention_weights_dtype", [ttnn.bfloat16])
-@pytest.mark.parametrize("ff_weights_dtype", [ttnn.bfloat8_b])
-@pytest.mark.parametrize("conv_weights_dtype", [ttnn.bfloat16])
 @pytest.mark.parametrize("device_params", [{"l1_small_size": SDXL_L1_SMALL_SIZE}], indirect=True)
 def test_crossattnmid(
     device,
@@ -34,9 +31,6 @@ def test_crossattnmid(
     out_dim,
     use_program_cache,
     reset_seeds,
-    attention_weights_dtype,
-    ff_weights_dtype,
-    conv_weights_dtype,
 ):
     unet = UNet2DConditionModel.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float32, use_safetensors=True, subfolder="unet"
@@ -46,7 +40,7 @@ def test_crossattnmid(
 
     torch_crosattn = unet.mid_block
 
-    model_config = ModelOptimisations(conv_w_dtype=conv_weights_dtype)
+    model_config = ModelOptimisations()
     tt_crosattn = TtUNetMidBlock2DCrossAttn(
         device,
         state_dict,
@@ -55,8 +49,6 @@ def test_crossattnmid(
         query_dim,
         num_attn_heads,
         out_dim,
-        attention_weights_dtype=attention_weights_dtype,
-        ff_weights_dtype=ff_weights_dtype,
     )
     torch_input_tensor = torch_random(input_shape, -0.1, 0.1, dtype=torch.float32)
     torch_temb_tensor = torch_random(temb_shape, -0.1, 0.1, dtype=torch.float32)
