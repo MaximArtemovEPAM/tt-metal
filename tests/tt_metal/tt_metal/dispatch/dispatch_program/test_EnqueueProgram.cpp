@@ -265,18 +265,17 @@ bool test_dummy_EnqueueProgram_with_cbs(std::shared_ptr<distributed::MeshDevice>
     distributed::MeshWorkload workload;
     distributed::MeshCoordinate zero_coord = distributed::MeshCoordinate::zero_coordinate(mesh_device->shape().dims());
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(zero_coord, zero_coord);
-    Program program;    
+    Program program;
 
     initialize_dummy_circular_buffers(program, program_config.cr_set, program_config.cb_config_vector);
     initialize_dummy_kernels(program, program_config.cr_set);
     const bool is_blocking_op = false;
-    
+
     distributed::AddProgramToMeshWorkload(workload, std::move(program), device_range);
     distributed::EnqueueMeshWorkload(cq, workload, is_blocking_op);
     Finish(cq);
 
     return cb_config_successful(mesh_device, workload, program_config);
-    
 }
 
 bool test_dummy_EnqueueProgram_with_cbs_update_size(
@@ -993,7 +992,115 @@ void test_my_coordinates(IDevice* device, tt::RISCV processor_class, size_t cq_i
     tt::tt_metal::verify_kernel_coordinates(processor_class, cr, device, tt::tt_metal::SubDeviceId{0}, cb_addr);
 }
 
-void test_basic_dispatch_functions(IDevice* device, int cq_id) {
+bool test_dummy_EnqueueProgram_with_runtime_args(
+    std::shared_ptr<distributed::MeshDevice> mesh_device,
+    distributed::MeshCommandQueue& cq,
+    const DummyProgramConfig& program_config,
+    uint32_t num_runtime_args_dm0,
+    uint32_t num_runtime_args_dm1,
+    uint32_t num_runtime_args_compute,
+    uint32_t num_iterations) {
+    distributed::MeshWorkload workload;
+    distributed::MeshCoordinate zero_coord = distributed::MeshCoordinate::zero_coordinate(mesh_device->shape().dims());
+    distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(zero_coord, zero_coord);
+    auto device = mesh_device->get_devices()[0];
+    Program program;
+    bool pass = true;
+
+    CoreRangeSet cr_set = program_config.cr_set;
+
+    uint32_t rta_base_dm0 = mesh_device->allocator()->get_base_allocator_addr(HalMemType::L1);
+    uint32_t rta_base_dm1 = rta_base_dm0 + num_runtime_args_dm0 * sizeof(uint32_t);
+    uint32_t rta_base_compute = rta_base_dm1 + num_runtime_args_dm1 * sizeof(uint32_t);
+    std::map<string, string> dm_defines0 = {
+        {"DATA_MOVEMENT", "1"},
+        {"NUM_RUNTIME_ARGS", std::to_string(num_runtime_args_dm0)},
+        {"RESULTS_ADDR", std::to_string(rta_base_dm0)}};
+    std::map<string, string> dm_defines1 = {
+        {"DATA_MOVEMENT", "1"},
+        {"NUM_RUNTIME_ARGS", std::to_string(num_runtime_args_dm1)},
+        {"RESULTS_ADDR", std::to_string(rta_base_dm1)}};
+    std::map<string, string> compute_defines = {
+        {"COMPUTE", "1"},
+        {"NUM_RUNTIME_ARGS", std::to_string(num_runtime_args_compute)},
+        {"RESULTS_ADDR", std::to_string(rta_base_compute)}};
+
+    auto dm_kernel0 = CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/misc/runtime_args_kernel.cpp",
+        cr_set,
+        DataMovementConfig{
+            .processor = DataMovementProcessor::RISCV_0, .noc = NOC::RISCV_0_default, .defines = dm_defines0});
+
+    auto dm_kernel1 = CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/misc/runtime_args_kernel.cpp",
+        cr_set,
+        DataMovementConfig{
+            .processor = DataMovementProcessor::RISCV_1, .noc = NOC::RISCV_1_default, .defines = dm_defines1});
+
+    auto compute_kernel = CreateKernel(
+        program,
+        "tests/tt_metal/tt_metal/test_kernels/misc/runtime_args_kernel.cpp",
+        cr_set,
+        ComputeConfig{.defines = compute_defines});
+
+    vector<uint32_t> dm_kernel0_args;
+    vector<uint32_t> dm_kernel1_args;
+    vector<uint32_t> compute_kernel_args;
+
+    uint32_t idx;
+    for (idx = 0; idx < num_runtime_args_dm0; idx++) {
+        dm_kernel0_args.push_back(idx);
+    }
+    for (; idx < num_runtime_args_dm0 + num_runtime_args_dm1; idx++) {
+        dm_kernel1_args.push_back(idx);
+    }
+    for (; idx < num_runtime_args_dm0 + num_runtime_args_dm1 + num_runtime_args_compute; idx++) {
+        compute_kernel_args.push_back(idx);
+    }
+
+    for (const CoreRange& core_range : program_config.cr_set.ranges()) {
+        for (const CoreCoord& core_coord : core_range) {
+            SetRuntimeArgs(program, dm_kernel0, core_coord, dm_kernel0_args);
+            SetRuntimeArgs(program, dm_kernel1, core_coord, dm_kernel1_args);
+            SetRuntimeArgs(program, compute_kernel, core_coord, compute_kernel_args);
+        }
+    }
+
+    distributed::AddProgramToMeshWorkload(workload, std::move(program), device_range);
+    for (uint32_t i = 0; i < num_iterations; i++) {
+        distributed::EnqueueMeshWorkload(cq, workload, false);
+    }
+    Finish(cq);
+
+    for (const CoreRange& core_range : program_config.cr_set.ranges()) {
+        for (const CoreCoord& core_coord : core_range) {
+            vector<uint32_t> dm_kernel0_args_readback;
+            tt::tt_metal::detail::ReadFromDeviceL1(
+                device, core_coord, rta_base_dm0, dm_kernel0_args.size() * sizeof(uint32_t), dm_kernel0_args_readback);
+            pass &= (dm_kernel0_args == dm_kernel0_args_readback);
+
+            vector<uint32_t> dm_kernel1_args_readback;
+            tt::tt_metal::detail::ReadFromDeviceL1(
+                device, core_coord, rta_base_dm1, dm_kernel1_args.size() * sizeof(uint32_t), dm_kernel1_args_readback);
+            pass &= (dm_kernel1_args == dm_kernel1_args_readback);
+
+            vector<uint32_t> compute_kernel_args_readback;
+            tt::tt_metal::detail::ReadFromDeviceL1(
+                device,
+                core_coord,
+                rta_base_compute,
+                compute_kernel_args.size() * sizeof(uint32_t),
+                compute_kernel_args_readback);
+            pass &= (compute_kernel_args == compute_kernel_args_readback);
+        }
+    }
+
+    return pass;
+}
+
+void test_basic_dispatch_functions(std::shared_ptr<distributed::MeshDevice> mesh_device, int cq_id) {
     CoreRange cr({0, 0}, {0, 0});
     CoreRangeSet cr_set({cr});
 
@@ -1002,23 +1109,28 @@ void test_basic_dispatch_functions(IDevice* device, int cq_id) {
     constexpr uint32_t k_LoopPerDev = 100;
 
     DummyProgramConfig dummy_program_config = {.cr_set = cr_set};
-
+    auto device = mesh_device->get_devices()[0];
     log_info(tt::LogTest, "Running On Device {}", device->id());
 
     std::vector<uint32_t> src_data(k_DataSize / sizeof(uint32_t));
     for (int i = 0; i < k_DataSize / sizeof(uint32_t); ++i) {
         src_data[i] = (device->id() + 1) * 0xdeadbeef;
     }
-    auto buffer = CreateBuffer(InterleavedBufferConfig{device, k_DataSize, k_PageSize, BufferType::L1});
-    auto& cq = device->command_queue(cq_id);
+    distributed::DeviceLocalBufferConfig device_local_buffer_config{
+        .page_size = k_PageSize, .buffer_type = BufferType::L1};
+
+    distributed::ReplicatedBufferConfig mesh_buffer_config{.size = k_DataSize};
+    auto buffer = distributed::MeshBuffer::create(mesh_buffer_config, device_local_buffer_config, mesh_device.get());
+
+    auto& cq = mesh_device->mesh_command_queue(cq_id);
     for (int i = 0; i < k_LoopPerDev; ++i) {
         log_info(tt::LogTest, " Iteration {}", i);
         EXPECT_TRUE(local_test_functions::test_dummy_EnqueueProgram_with_runtime_args(
-            device, cq, dummy_program_config, 24, 12, 15, k_LoopPerDev));
-        EnqueueWriteBuffer(cq, *buffer, src_data, false);
+            mesh_device, cq, dummy_program_config, 24, 12, 15, k_LoopPerDev));
+        distributed::EnqueueWriteMeshBuffer(cq, buffer, src_data, false);
 
         std::vector<uint32_t> dst_data;
-        EnqueueReadBuffer(cq, *buffer, dst_data, true);
+        distributed::ReadShard(cq, dst_data, buffer, distributed::MeshCoordinate{0, 0}, true);
         EXPECT_EQ(src_data, dst_data);
     }
 }
@@ -1301,13 +1413,13 @@ TEST_F(CommandQueueSingleCardProgramFixture, TensixTestRuntimeArgsCorrectlySentS
 }
 
 TEST_F(CommandQueueOnFabricMultiDeviceFixture, TensixTestBasicDispatchFunctions) {
-    for (IDevice* device : devices_) {
+    for (auto& device : devices_) {
         local_test_functions::test_basic_dispatch_functions(device, 0);
     }
 }
 
-TEST_F(MultiCommandQueueOnFabricMultiDeviceFixture, TensixTestBasicDispatchFunctions) {
-    for (IDevice* device : devices_) {
+TEST_F(UnitMeshMultiCommandQueueMultiDeviceFixture, TensixTestBasicDispatchFunctions) {
+    for (auto& device : devices_) {
         for (int cq_id = 0; cq_id < device->num_hw_cqs(); ++cq_id) {
             local_test_functions::test_basic_dispatch_functions(device, cq_id);
         }
