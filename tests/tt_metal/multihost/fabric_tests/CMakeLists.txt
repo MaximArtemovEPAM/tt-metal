@@ -8,6 +8,7 @@ target_sources(
     PRIVATE
         main.cpp
         intermesh_routing.cpp
+        intermesh_routing_test_utils.cpp
 )
 
 target_include_directories(
