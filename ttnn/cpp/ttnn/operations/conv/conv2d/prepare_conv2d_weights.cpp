@@ -21,6 +21,7 @@
 #include "ttnn/operations/data_movement/tilize/tilize.hpp"
 #include <thread>
 #include <vector>
+#include <cmath>
 namespace ttnn {
 namespace operations::conv {
 
@@ -35,18 +36,30 @@ struct ThreadingConfig {
 inline ThreadingConfig calculate_optimal_threading(uint32_t dim1_size, uint32_t dim2_size = 0) {
     // Get available cores, but cap to avoid over-subscription
     const uint32_t available_cores = std::thread::hardware_concurrency();
+    if (available_cores == 0) {
+        // Fallback if hardware_concurrency fails
+        return {1, 1, 1};
+    }
+
     const uint32_t cores_for_system = std::max(2u, available_cores / 8);  // Leave 12.5% or at least 2 cores for system
     const uint32_t max_total_threads = available_cores > cores_for_system ? available_cores - cores_for_system : 1u;
 
+    // Ensure we have at least some work per thread to avoid overhead
+    const uint32_t min_work_per_thread = 64;
+
     if (dim2_size == 0) {
         // 1D parallelization case
-        const uint32_t single_dim_threads = std::min(max_total_threads, std::max(1u, dim1_size / 8));
+        const uint32_t max_useful_threads = std::max(1u, dim1_size / min_work_per_thread);
+        const uint32_t single_dim_threads = std::min(max_total_threads, max_useful_threads);
         return {single_dim_threads, 1, single_dim_threads};
     } else {
         // 2D parallelization case
+        const uint32_t max_useful_threads_dim1 = std::max(1u, dim1_size / min_work_per_thread);
+        const uint32_t max_useful_threads_dim2 = std::max(1u, dim2_size / min_work_per_thread);
+
         const uint32_t max_threads_per_dim = std::min(8u, max_total_threads / 2);
-        const uint32_t threads_dim1 = std::min(max_threads_per_dim, std::max(1u, dim1_size / 16));  // Lower threshold
-        const uint32_t threads_dim2 = std::min(max_threads_per_dim, std::max(1u, dim2_size / 16));
+        const uint32_t threads_dim1 = std::min(std::min(max_threads_per_dim, max_useful_threads_dim1), dim1_size);
+        const uint32_t threads_dim2 = std::min(std::min(max_threads_per_dim, max_useful_threads_dim2), dim2_size);
         const uint32_t total = threads_dim1 * threads_dim2;
 
         // If total threads exceed our cap, scale back proportionally
@@ -319,18 +332,22 @@ Tensor to_weight_tile_layout_block_sharded(
         const uint32_t ic_threads = threading_config.threads_dim1;
         const uint32_t oc_threads = threading_config.threads_dim2;
 
-        const uint32_t ic_per_thread = num_channel_shards / ic_threads;
-        const uint32_t oc_per_thread = num_channel_shards / oc_threads;
+        // SAFETY FIX: Prevent division by zero and ensure valid thread counts
+        const uint32_t safe_ic_threads = std::max(1u, std::min(ic_threads, num_channel_shards));
+        const uint32_t safe_oc_threads = std::max(1u, std::min(oc_threads, num_channel_shards));
+
+        const uint32_t ic_per_thread = num_channel_shards / safe_ic_threads;
+        const uint32_t oc_per_thread = num_channel_shards / safe_oc_threads;
 
         std::vector<std::thread> threads;
 
-        for (uint32_t ic_t = 0; ic_t < ic_threads; ++ic_t) {
+        for (uint32_t ic_t = 0; ic_t < safe_ic_threads; ++ic_t) {
             uint32_t ic_start = ic_t * ic_per_thread;
-            uint32_t ic_end = (ic_t == ic_threads - 1) ? num_channel_shards : ic_start + ic_per_thread;
+            uint32_t ic_end = (ic_t == safe_ic_threads - 1) ? num_channel_shards : ic_start + ic_per_thread;
 
-            for (uint32_t oc_t = 0; oc_t < oc_threads; ++oc_t) {
+            for (uint32_t oc_t = 0; oc_t < safe_oc_threads; ++oc_t) {
                 uint32_t oc_start = oc_t * oc_per_thread;
-                uint32_t oc_end = (oc_t == oc_threads - 1) ? num_channel_shards : oc_start + oc_per_thread;
+                uint32_t oc_end = (oc_t == safe_oc_threads - 1) ? num_channel_shards : oc_start + oc_per_thread;
 
                 threads.emplace_back([=, &output_buffer, &input_buffer]() {
                     for (auto ic = ic_start; ic < ic_end; ic++) {
@@ -407,13 +424,16 @@ Tensor to_bias_tile_layout_block_sharded(
         // Threading: parallelize across channel shards
         auto threading_config = calculate_optimal_threading(num_channel_shards);
         const uint32_t shard_threads = threading_config.threads_dim1;
-        const uint32_t oc_per_thread = num_channel_shards / shard_threads;
+
+        // SAFETY FIX: Prevent division by zero and ensure valid thread count
+        const uint32_t safe_shard_threads = std::max(1u, std::min(shard_threads, num_channel_shards));
+        const uint32_t oc_per_thread = num_channel_shards / safe_shard_threads;
 
         std::vector<std::thread> threads;
 
-        for (uint32_t t = 0; t < shard_threads; ++t) {
+        for (uint32_t t = 0; t < safe_shard_threads; ++t) {
             uint32_t oc_start = t * oc_per_thread;
-            uint32_t oc_end = (t == shard_threads - 1) ? num_channel_shards : oc_start + oc_per_thread;
+            uint32_t oc_end = (t == safe_shard_threads - 1) ? num_channel_shards : oc_start + oc_per_thread;
 
             threads.emplace_back([=, &output_buffer, &input_buffer]() {
                 for (auto oc = oc_start; oc < oc_end; oc++) {
