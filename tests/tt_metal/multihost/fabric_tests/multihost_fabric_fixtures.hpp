@@ -15,7 +15,7 @@
 namespace tt::tt_fabric {
 namespace fabric_router_tests {
 
-class Custom2x4Fabric2DDynamicFixture : public BaseFabricFixture {
+class InterMesh2x4Fabric2DFixture : public BaseFabricFixture {
 public:
     void SetUp() override {
         local_binding_manager_.validate_local_mesh_id_and_host_rank();

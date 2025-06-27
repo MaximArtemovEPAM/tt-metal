@@ -14,13 +14,13 @@
 namespace tt::tt_fabric {
 namespace fabric_router_tests::multihost {
 
-TEST_F(Custom2x4Fabric2DDynamicFixture, RandomizedInterMeshUnicast) {
+TEST_F(InterMesh2x4Fabric2DFixture, RandomizedInterMeshUnicast) {
     for (uint32_t i = 0; i < 500; i++) {
         multihost_utils::RandomizedInterMeshUnicast(this);
     }
 }
 
-TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshMulticast) {
+TEST_F(InterMesh2x4Fabric2DFixture, MultiMeshMulticast) {
     std::vector<FabricNodeId> mcast_req_nodes = {
         FabricNodeId(MeshId{0}, 1), FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 2)};
     std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 0)};
@@ -34,7 +34,7 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshMulticast) {
     }
 }
 
-TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshSouthMulticast) {
+TEST_F(InterMesh2x4Fabric2DFixture, MultiMeshSouthMulticast) {
     std::vector<FabricNodeId> mcast_req_nodes = {FabricNodeId(MeshId{0}, 0), FabricNodeId(MeshId{0}, 1)};
     std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 0), FabricNodeId(MeshId{1}, 1)};
     std::vector<McastRoutingInfo> routing_info = {
@@ -47,7 +47,7 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshSouthMulticast) {
     }
 }
 
-TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshNorthMulticast) {
+TEST_F(InterMesh2x4Fabric2DFixture, MultiMeshNorthMulticast) {
     std::vector<FabricNodeId> mcast_req_nodes = {FabricNodeId(MeshId{0}, 3), FabricNodeId(MeshId{0}, 3)};
     std::vector<FabricNodeId> mcast_start_nodes = {FabricNodeId(MeshId{1}, 2), FabricNodeId(MeshId{1}, 3)};
     std::vector<McastRoutingInfo> routing_info = {
@@ -59,5 +59,6 @@ TEST_F(Custom2x4Fabric2DDynamicFixture, MultiMeshNorthMulticast) {
             this, mcast_req_nodes[i % 2], mcast_start_nodes[i % 2], routing_info, mcast_group_node_ids[i % 2]);
     }
 }
+
 }  // namespace fabric_router_tests::multihost
 }  // namespace tt::tt_fabric
