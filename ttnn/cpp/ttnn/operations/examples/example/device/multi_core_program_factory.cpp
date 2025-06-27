@@ -6,13 +6,17 @@
 #include <tt-metalium/work_split.hpp>
 #include <iostream>
 
+// #define DEB
+
 namespace ttnn::operations::examples {
 ExampleDeviceOperation::MultiCore::cached_program_t ExampleDeviceOperation::MultiCore::create(
     const operation_attributes_t& operation_attributes,
     const tensor_args_t& tensor_args,
     tensor_return_value_t& tensor_return_value) {
+#ifdef DEB
     std::cout << "*********************" << std::endl;
     std::cout << "ttnn/cpp/ttnn/operations/examples/example/device/multi_core_program_factory.cpp" << std::endl;
+#endif
 
     using namespace tt;
     using namespace tt::tt_metal;
@@ -39,6 +43,11 @@ ExampleDeviceOperation::MultiCore::cached_program_t ExampleDeviceOperation::Mult
     uint32_t num_cores_y = compute_with_storage_grid_size.y;
     auto [num_cores, all_cores, core_group_1, core_group_2, num_tiles_per_core_group_1, num_tiles_per_core_group_2] =
         tt::tt_metal::split_work_to_cores(compute_with_storage_grid_size, num_tiles);
+
+#ifdef DEB
+    std::cout << "Num_cores " << num_cores << " num_cores_x " << num_cores_x << " num_cores_y " << num_cores_y
+              << std::endl;
+#endif
 
     uint32_t src0_cb_index = tt::CBIndex::c_0;
     uint32_t num_input_tiles = 2;
