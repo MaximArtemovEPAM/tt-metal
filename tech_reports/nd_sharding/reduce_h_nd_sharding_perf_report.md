@@ -155,7 +155,11 @@ As shown in [this PR](https://github.com/tenstorrent/tt-metal/pull/22929), `get_
 | time (ns)                     | 194891           | 179025         | 31490             | 129263               | 65393                 | 36961                              | 34074                                 |
 
 ## Reusing 2d-sharded reader kernel
-TODO: Should align perf with 2d sharding
+Single in case of n shards over n cores, tensor data is organized in the same exact way as in case of 2d sharding, we can reuse sharded reader kernel. This pretty much aligns performance with 2d sharding
+| 256x512 64 shards on 64 cores | DRAM interleaved | L1 interleaved | 2d width sharding | nd sharding baseline | nd sharding col-major | nd sharding col-major squeeze dims | nd sharding col-major no get_noc_addr | nd sharding reuse 2d sharding kernel |
+| ----------------------------- | ---------------- | -------------- | ----------------- | -------------------- | --------------------- | ---------------------------------- | ------------------------------------- | ------------------------------------ |
+| time (ns)                     | 194891           | 179025         | 31490             | 129263               | 65393                 | 36961                              | 34074                                 | 31519                                |
+
 
 
 ### Reproduce benchmark results
@@ -164,3 +168,4 @@ tt_metal/tools/profiler/profile_this.py -c 'pytest tests/sweep_framework/sweeps/
 ```
 
 - Should create a .csv file under generated/profiler/reports/time_stamp/
+- Column "DEVICE KERNEL DURATION [ns]" should contain kernel duration
