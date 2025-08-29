@@ -1,0 +1,10 @@
+[requires]
+openmpi/4.1.6
+capstone/5.0.6
+[generators]
+CMakeDeps
+CMakeConfigDeps
+CMakeToolchain
+PkgConfigDeps
+[layout]
+cmake_layout

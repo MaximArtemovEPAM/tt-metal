@@ -35,6 +35,8 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DDEBUG")
+set(CONAN_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/conan_build/build/Release/generators")
+include("${CONAN_INSTALL_DIR}/conan_cmakedeps_paths.cmake")
 
 # Defining build types is the pervue of the top-level project
 if(PROJECT_IS_TOP_LEVEL)
