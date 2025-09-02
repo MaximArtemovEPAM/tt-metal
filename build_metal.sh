@@ -408,6 +408,7 @@ conan install . --output-folder=conan_build --build=missing -c tools.cmake.cmake
 # cmake_args+=("--debug-output")
 cmake_args+=("--fresh")
 # cmake_args+=("--graphviz=build_dependencies.dot")
+cmake_args+=("-DCMAKE_FIND_DEBUG_MODE=ON")
 
 echo "INFO: Configuring Project"
 echo "INFO: Running: cmake "${cmake_args[@]}""

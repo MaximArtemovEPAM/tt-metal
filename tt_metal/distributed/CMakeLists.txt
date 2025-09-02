@@ -30,7 +30,7 @@ if(NOT DEFINED ENABLE_DISTRIBUTED)
     set(ENABLE_DISTRIBUTED OFF)
 endif()
 
-set(ULFM_PREFIX /opt/openmpi-v5.0.7-ulfm)
+set(ULFM_PREFIX /opt/openmpi-v5.0.7-ulfmJJJJ)
 
 # Check if distributed is enabled and ULFM MPI exists, otherwise use system MPI, or fall back to single host
 if(ENABLE_DISTRIBUTED AND EXISTS ${ULFM_PREFIX}/lib/libmpi.so.40)
@@ -56,14 +56,15 @@ if(ENABLE_DISTRIBUTED AND EXISTS ${ULFM_PREFIX}/lib/libmpi.so.40)
             INTERFACE_INCLUDE_DIRECTORIES
                 ${ULFM_PREFIX}/include
     )
+    add_library(openmpi_mpi ALIAS OpenMPI::MPI)
 elseif(ENABLE_DISTRIBUTED)
     # Try to find system MPI if distributed is enabled
-    find_package(MPI QUIET COMPONENTS C)
+    include("${MPI_DIR}/FindMPI.cmake")
     if(MPI_FOUND)
         message(STATUS "ULFM MPI not found, using system MPI")
-        add_library(OpenMPI::MPI ALIAS MPI::MPI_C)
         set(USE_MPI TRUE)
         list(APPEND DISTRIBUTED_SRC ${CMAKE_CURRENT_SOURCE_DIR}/multihost/mpi_distributed_context.cpp)
+        add_library(openmpi_mpi ALIAS openmpi::openmpi)
     else()
         message(
             FATAL_ERROR
@@ -96,7 +97,7 @@ target_link_libraries(
 add_dependencies(distributed metalium_GeneratedHeaders)
 
 if(USE_MPI)
-    target_link_libraries(distributed PRIVATE OpenMPI::MPI)
+    target_link_libraries(distributed PRIVATE openmpi_mpi)
     target_compile_definitions(distributed PRIVATE OPEN_MPI="1")
 endif()
 
