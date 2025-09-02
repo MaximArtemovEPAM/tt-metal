@@ -196,6 +196,7 @@ init_packages() {
                 "python3-pip"
                 "python3-venv"
                 "libstdc++6"
+                "libboost-dev"
                 "libc++-17-dev"
                 "libc++abi-17-dev"
                 "wget"

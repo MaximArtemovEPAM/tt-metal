@@ -150,15 +150,20 @@ endif()
 #   in order to propagate to the rest of tt_metal, tt_eager, etc.
 ############################################################################################################################
 add_library(metal_common_libs INTERFACE)
+find_package(hwloc REQUIRED)
+find_package(libnuma REQUIRED)
+
 target_link_libraries(
     metal_common_libs
     INTERFACE
         dl
         pthread
         atomic
-        hwloc
-        numa
+        hwloc::hwloc
+        libnuma::libnuma
 )
+
+target_link_options(metal_common_libs INTERFACE "-Wl,--version-script=/workspace/conan_libnuma_fixes.ldscript")
 
 add_compile_options(
     "$<$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>:-march=x86-64-v3>"

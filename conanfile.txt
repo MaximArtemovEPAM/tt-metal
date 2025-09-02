@@ -1,10 +1,13 @@
 [requires]
 openmpi/4.1.6
 capstone/5.0.6
+libnuma/2.0.19
+
 [generators]
 CMakeDeps
 CMakeConfigDeps
 CMakeToolchain
 PkgConfigDeps
+
 [layout]
 cmake_layout

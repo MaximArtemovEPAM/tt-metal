@@ -404,9 +404,10 @@ if [ "$cxx_compiler_path" == "" ]; then
     cmake_args+=("-DCMAKE_TOOLCHAIN_FILE=${toolchain_path}")
 fi
 
-conan install . --output-folder=conan_build --build=missing -c tools.cmake.cmakedeps:new=recipe_will_break
+conan install . --output-folder=conan_build --build=missing -c tools.cmake.cmakedeps:new=recipe_will_break --profile conan_profile.txt
 # cmake_args+=("--debug-output")
 cmake_args+=("--fresh")
+# cmake_args+=("--graphviz=build_dependencies.dot")
 
 echo "INFO: Configuring Project"
 echo "INFO: Running: cmake "${cmake_args[@]}""
