@@ -2,12 +2,17 @@
 openmpi/4.1.6
 capstone/5.0.6
 libnuma/2.0.19
+boost/1.88.0
 
 [generators]
 CMakeDeps
 CMakeConfigDeps
 CMakeToolchain
-PkgConfigDeps
+VirtualBuildEnv
 
 [layout]
 cmake_layout
+
+[tool_requires]
+cmake/4.1.1
+ninja/1.13.1

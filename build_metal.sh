@@ -405,10 +405,17 @@ if [ "$cxx_compiler_path" == "" ]; then
 fi
 
 conan install . --output-folder=conan_build --build=missing -c tools.cmake.cmakedeps:new=recipe_will_break --profile conan_profile.txt
+source conan_build/build/Release/generators/conanbuild.sh
+cmake --version
+which cmake
+ninja --version
+which ninja
+echo "$PATH"
+
 # cmake_args+=("--debug-output")
 cmake_args+=("--fresh")
 # cmake_args+=("--graphviz=build_dependencies.dot")
-cmake_args+=("-DCMAKE_FIND_DEBUG_MODE=ON")
+# cmake_args+=("-DCMAKE_FIND_DEBUG_MODE=ON")
 
 echo "INFO: Configuring Project"
 echo "INFO: Running: cmake "${cmake_args[@]}""

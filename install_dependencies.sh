@@ -186,8 +186,6 @@ init_packages() {
             PACKAGES=(
                 "git"
                 "build-essential"
-                "cmake"
-                "ninja-build"
                 "pkg-config"
                 "$gpp_package"
                 "pandoc"
@@ -196,15 +194,11 @@ init_packages() {
                 "python3-pip"
                 "python3-venv"
                 "libstdc++6"
-                "libboost-dev"
                 "libc++-17-dev"
                 "libc++abi-17-dev"
                 "wget"
                 "curl"
             )
-            if [ "$distributed" -eq 1 ]; then
-                PACKAGES+=("openmpi-bin" "libopenmpi-dev")
-            fi
             ;;
         redhat)
             PACKAGES=(
@@ -213,25 +207,15 @@ init_packages() {
                 "gcc-c++"
                 "make"
                 "clang"
-                "cmake"
-                "ninja-build"
                 "pkgconf-pkg-config"
                 "xz"
                 "python3-devel"
                 "python3-pip"
-                "hwloc-devel"
-                "numactl-devel"
                 "libatomic"
                 "libstdc++"
-                "boost-devel"
-                "tbb-devel"
-                "capstone-devel"
                 "wget"
                 "curl"
             )
-            if [ "$distributed" -eq 1 ]; then
-                PACKAGES+=("openmpi" "openmpi-devel")
-            fi
             ;;
     esac
 }
