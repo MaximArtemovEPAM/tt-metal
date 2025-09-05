@@ -1,6 +1,5 @@
 add_library(common OBJECT)
 add_library(TT::Metalium::Common ALIAS common)
-find_package(libnuma REQUIRED)
 
 target_sources(
     common
@@ -45,5 +44,5 @@ target_link_libraries(
         yaml-cpp::yaml-cpp
         Boost::asio
         tt-logger::tt-logger
-        libnuma::libnuma
+        numa
 )

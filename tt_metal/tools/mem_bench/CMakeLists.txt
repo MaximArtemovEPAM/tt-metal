@@ -22,10 +22,9 @@ target_link_libraries(
         TT::Metalium::Common
         Metalium::Metal::Impl
         Metalium::Metal::LLRT
-        libnuma::libnuma
+        numa
         benchmark::benchmark
 )
-
 target_include_directories(
     mem_bench
     PRIVATE

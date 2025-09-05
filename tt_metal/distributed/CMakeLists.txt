@@ -56,15 +56,17 @@ if(ENABLE_DISTRIBUTED AND EXISTS ${ULFM_PREFIX}/lib/libmpi.so.40)
             INTERFACE_INCLUDE_DIRECTORIES
                 ${ULFM_PREFIX}/include
     )
-    add_library(openmpi_mpi ALIAS OpenMPI::MPI)
 elseif(ENABLE_DISTRIBUTED)
     # Try to find system MPI if distributed is enabled
-    include("${MPI_DIR}/FindMPI.cmake")
-    if(MPI_FOUND)
+    find_package(MPI QUIET COMPONENTS C)
+    # conan MPI package provides different target name compared to the apt-provided one
+    if(TARGET openmpi::openmpi)
+        add_library(OpenMPI::MPI ALIAS openmpi::openmpi)
+    elseif(MPI_FOUND)
         message(STATUS "ULFM MPI not found, using system MPI")
+        add_library(OpenMPI::MPI ALIAS MPI::MPI_C)
         set(USE_MPI TRUE)
         list(APPEND DISTRIBUTED_SRC ${CMAKE_CURRENT_SOURCE_DIR}/multihost/mpi_distributed_context.cpp)
-        add_library(openmpi_mpi ALIAS openmpi::openmpi)
     else()
         message(
             FATAL_ERROR
@@ -97,7 +99,7 @@ target_link_libraries(
 add_dependencies(distributed metalium_GeneratedHeaders)
 
 if(USE_MPI)
-    target_link_libraries(distributed PRIVATE openmpi_mpi)
+    target_link_libraries(distributed PRIVATE OpenMPI::MPI)
     target_compile_definitions(distributed PRIVATE OPEN_MPI="1")
 endif()
 

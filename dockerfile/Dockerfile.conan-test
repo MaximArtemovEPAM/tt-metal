@@ -185,6 +185,15 @@ RUN pip3 install conan
 RUN conan --version
 
 RUN git config --global --add safe.directory /workspace
+
+WORKDIR /tt-metal-conan
+COPY conanfile.txt /tt-metal-conan/conanfile.txt
+COPY tool_conanfile.txt /tt-metal-conan/tool_conanfile.txt
+COPY conan_profile.txt /tt-metal-conan/conan_profile.txt
+COPY install_conan_packages.sh /tt-metal-conan/install_conan_packages.sh
+RUN ls -al
+RUN ./install_conan_packages.sh /tt-metal-conan/conan-build
+
 WORKDIR /tt-metal
 COPY . /tt-metal
 RUN ls

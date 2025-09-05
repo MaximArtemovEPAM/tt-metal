@@ -35,8 +35,28 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DDEBUG")
-set(CONAN_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/conan_build/build/Release/generators")
-include("${CONAN_INSTALL_DIR}/conan_cmakedeps_paths.cmake")
+
+option(CONAN_INSTALL_ROOT "Root for the conan package installation" "")
+message(STATUS "CONAN_INSTALL_ROOT = ${CONAN_INSTALL_ROOT}")
+
+if(CONAN_INSTALL_ROOT)
+    set(CONAN_INSTALL_DIR "${CONAN_INSTALL_ROOT}/build/Release/generators")
+    include("${CONAN_INSTALL_DIR}/conan_cmakedeps_paths.cmake")
+endif()
+
+find_package(libnuma REQUIRED)
+find_package(hwloc)
+
+if(TARGET hwloc::hwloc)
+    add_library(hwloc ALIAS hwloc::hwloc)
+    # conan-provided hwloc target include directories do not transfer correctly, need to
+    # set them explicitly in the consumer cmake script.
+    target_include_directories(hwloc::hwloc INTERFACE "${hwloc_INCLUDE_DIR}")
+endif()
+
+if(TARGET libnuma::libnuma)
+    add_library(numa ALIAS libnuma::libnuma)
+endif()
 
 # Defining build types is the pervue of the top-level project
 if(PROJECT_IS_TOP_LEVEL)
@@ -150,20 +170,15 @@ endif()
 #   in order to propagate to the rest of tt_metal, tt_eager, etc.
 ############################################################################################################################
 add_library(metal_common_libs INTERFACE)
-find_package(hwloc REQUIRED)
-find_package(libnuma REQUIRED)
-
 target_link_libraries(
     metal_common_libs
     INTERFACE
         dl
         pthread
         atomic
-        hwloc::hwloc
-        libnuma::libnuma
+        hwloc
+        numa
 )
-
-# target_link_options(metal_common_libs INTERFACE "-Wl,--version-script=/workspace/conan_libnuma_fixes.ldscript")
 
 add_compile_options(
     "$<$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>:-march=x86-64-v3>"

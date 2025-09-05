@@ -136,4 +136,5 @@ ClangBuildAnalyzer.ini
 ttnn/ttnn/.rpath_checked__ttnn
 Testing
 !build_metal_with_conan.sh
+!build_metal_in_docker.sh
 conan_build
