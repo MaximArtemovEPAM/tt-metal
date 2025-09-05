@@ -3,11 +3,6 @@ set(TRACY_HOME ${PROJECT_SOURCE_DIR}/tt_metal/third_party/tracy)
 
 option(ENABLE_TRACY_TIMER_FALLBACK "Enable Tracy timer fallback" OFF)
 
-find_package(capstone REQUIRED)
-set(CONAN_PKG_CONFIG_PATH "${CONAN_INSTALL_DIR}")
-
-message(STATUS "INFO: CONAN_PKG_CONFIG_PATH=${CONAN_PKG_CONFIG_PATH}")
-
 if(NOT ENABLE_TRACY)
     # Stub Tracy::TracyClient to provide the headers which themselves provide stubs
     add_library(TracyClient INTERFACE)
@@ -67,8 +62,8 @@ ExternalProject_Add(
     INSTALL_COMMAND
         cp ${TRACY_HOME}/csvexport/build/unix/csvexport-release .
     BUILD_COMMAND
-        ${CMAKE_COMMAND} -E env PKG_CONFIG_PATH=${CONAN_PKG_CONFIG_PATH} CXX=g++ TRACY_NO_LTO=1 make -C
-        ${TRACY_HOME}/csvexport/build/unix -f ${TRACY_HOME}/csvexport/build/unix/Makefile
+        cd ${TRACY_HOME}/csvexport/build/unix && CXX=g++ TRACY_NO_LTO=1 make -f
+        ${TRACY_HOME}/csvexport/build/unix/Makefile
 )
 ExternalProject_Add(
     tracy_capture_tools
@@ -85,8 +80,7 @@ ExternalProject_Add(
     INSTALL_COMMAND
         cp ${TRACY_HOME}/capture/build/unix/capture-release .
     BUILD_COMMAND
-        ${CMAKE_COMMAND} -E env PKG_CONFIG_PATH=${CONAN_PKG_CONFIG_PATH} CXX=g++ TRACY_NO_LTO=1 remake --always-make -C
-        ${TRACY_HOME}/capture/build/unix -f ${TRACY_HOME}/capture/build/unix/Makefile
+        cd ${TRACY_HOME}/capture/build/unix && CXX=g++ TRACY_NO_LTO=1 make -f ${TRACY_HOME}/capture/build/unix/Makefile
 )
 add_custom_target(
     tracy_tools
