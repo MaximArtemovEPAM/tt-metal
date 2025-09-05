@@ -163,7 +163,7 @@ target_link_libraries(
         libnuma::libnuma
 )
 
-target_link_options(metal_common_libs INTERFACE "-Wl,--version-script=/workspace/conan_libnuma_fixes.ldscript")
+# target_link_options(metal_common_libs INTERFACE "-Wl,--version-script=/workspace/conan_libnuma_fixes.ldscript")
 
 add_compile_options(
     "$<$<STREQUAL:${CMAKE_SYSTEM_PROCESSOR},x86_64>:-march=x86-64-v3>"

@@ -30,7 +30,7 @@ if(NOT DEFINED ENABLE_DISTRIBUTED)
     set(ENABLE_DISTRIBUTED OFF)
 endif()
 
-set(ULFM_PREFIX /opt/openmpi-v5.0.7-ulfmJJJJ)
+set(ULFM_PREFIX /opt/openmpi-v5.0.7-ulfm)
 
 # Check if distributed is enabled and ULFM MPI exists, otherwise use system MPI, or fall back to single host
 if(ENABLE_DISTRIBUTED AND EXISTS ${ULFM_PREFIX}/lib/libmpi.so.40)

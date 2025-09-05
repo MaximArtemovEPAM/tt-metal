@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -eo pipefail
+set -o xtrace
 
 FLAVOR=`grep '^ID=' /etc/os-release | awk -F= '{print $2}' | tr -d '"'`
 ARCH=`uname -m`
@@ -404,14 +405,7 @@ if [ "$cxx_compiler_path" == "" ]; then
     cmake_args+=("-DCMAKE_TOOLCHAIN_FILE=${toolchain_path}")
 fi
 
-conan install . --output-folder=conan_build --build=missing -c tools.cmake.cmakedeps:new=recipe_will_break --profile conan_profile.txt
-source conan_build/build/Release/generators/conanbuild.sh
-cmake --version
-which cmake
-ninja --version
-which ninja
-echo "$PATH"
-
+# WIP code, will be removed before making a final PR
 # cmake_args+=("--debug-output")
 cmake_args+=("--fresh")
 # cmake_args+=("--graphviz=build_dependencies.dot")
