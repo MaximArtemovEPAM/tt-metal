@@ -13,25 +13,9 @@ ENV CARGO_HOME=/usr/local/cargo
 ENV PATH="$CARGO_HOME/bin:$PATH"
 
 # Install runtime deps
+COPY /install_dependencies.sh /opt/tt_metal_infra/scripts/docker/install_dependencies.sh
 COPY /tt_metal/sfpi-version.sh /opt/tt_metal_infra/scripts/docker/sfpi-version.sh
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    acl \
-    gdb \
-    less \
-    libmpfr-dev \
-    libgl1 \
-    ipmitool \
-    git \
-    build-essential \
-    pkg-config \
-    xz-utils \
-    python3-pip python3-full python3-dev \
-    wget \
-    curl \
-    lsb-release wget software-properties-common gnupg \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-RUN wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 20 && ./llvm.sh 17
+RUN /bin/bash /opt/tt_metal_infra/scripts/docker/install_dependencies.sh --docker
 
 # Set up virtual environment and TT_METAL_HOME
 ENV PYTHON_ENV_DIR=/opt/venv
