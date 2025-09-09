@@ -8,5 +8,5 @@ if docker images -q docker-conan-test > /dev/null 2>&1; then
     docker rmi docker-conan-test
 fi
 
-docker build --progress=plain -f dockerfile/Dockerfile.conan-test.debian -t docker-conan-test .
+docker build --progress=plain -f dockerfile/Dockerfile.conan-test.fedora -t docker-conan-test .
 docker run -it --rm -v $(pwd):/workspace docker-conan-test ./build_metal_with_conan.sh /tt-metal-conan/conan-build
