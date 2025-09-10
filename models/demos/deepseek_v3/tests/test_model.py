@@ -9,10 +9,11 @@ import torch
 from loguru import logger
 
 import ttnn
-from models.demos.deepseek_v3.reference.modeling_deepseek import DeepseekV3Model
+from models.demos.deepseek_v3.reference.modeling_deepseek import DeepseekV3ForCausalLM
 from models.demos.deepseek_v3.tt.mla_1d import MLA1D
 from models.demos.deepseek_v3.tt.model_1d import Model1D
 from models.demos.deepseek_v3.tt.rope import RotarySetup
+from models.demos.deepseek_v3.utils.config_helpers import dequantize_state_dict
 from models.demos.deepseek_v3.utils.reference_forwards import reference_forward_model as reference_forward
 from models.demos.deepseek_v3.utils.run_config import create_run_config
 from models.demos.deepseek_v3.utils.test_utils import (
@@ -21,6 +22,30 @@ from models.demos.deepseek_v3.utils.test_utils import (
     load_state_dict,
 )
 from models.utility_functions import comp_pcc
+
+
+def merge_dicts(parent, child, prefix):
+    for k, v in child.items():
+        if isinstance(v, dict):
+            merge_dicts(parent.setdefault(k, {}), v, prefix + f"{k}.")
+        else:
+            parent[prefix + f"{k}"] = v
+
+
+def create_whole_model_state_dict(model_path, hf_config, prefix="model."):
+    state_dict = {}
+
+    state_dict_temp = load_state_dict(model_path, "model.embed_tokens")
+    merge_dicts(state_dict, state_dict_temp, prefix + "embed_tokens.")
+    for li in range(hf_config.num_hidden_layers):
+        state_dict_temp = load_state_dict(model_path, f"model.layers.{li}")
+        merge_dicts(state_dict, state_dict_temp, prefix + f"layers.{li}.")
+    state_dict_temp = load_state_dict(model_path, "model.norm")
+    merge_dicts(state_dict, state_dict_temp, prefix + "norm.")
+    state_dict_temp = load_state_dict(model_path, "lm_head")
+    merge_dicts(state_dict, state_dict_temp, "lm_head.")
+
+    return state_dict
 
 
 @pytest.fixture
@@ -34,9 +59,7 @@ def hf_config(hf_config):
 def load_reference_model(hf_config):
     """Load the reference model for testing."""
 
-    model = DeepseekV3Model(hf_config).eval()
-
-    return model
+    return DeepseekV3ForCausalLM(hf_config).eval()
 
 
 @pytest.mark.parametrize(
@@ -60,17 +83,12 @@ def load_reference_model(hf_config):
         # ("prefill", 2048),  # Test chunking # TODO: Uncomment once MLA prefill works
     ],
 )
+@pytest.mark.parametrize(
+    "weights_type",
+    ["real", "random"],
+)
 def test_forward_pass(
-    module_path,
-    mode,
-    seq_len,
-    batch_size,
-    hf_config,
-    tmp_path,
-    mesh_device,
-    model_path,
-    ccl,
-    reset_seeds,
+    module_path, mode, seq_len, batch_size, hf_config, tmp_path, mesh_device, model_path, ccl, reset_seeds, weights_type
 ):
     mesh_device.disable_and_clear_program_cache()
     mesh_shape = list(mesh_device.shape)
@@ -82,14 +100,16 @@ def test_forward_pass(
     ### Set up reference
     ############################
     logger.info("Setting up reference model")
-    if module_path is None:
-        reference_model = load_reference_model(hf_config)
+    reference_model = load_reference_model(hf_config)
+    if weights_type == "random":
         state_dict = add_inv_scale_to_state_dict(
             reference_model.to(torch.bfloat16).state_dict(),
             block_shape=hf_config.quantization_config["weight_block_size"],
         )
     else:
-        state_dict = load_state_dict(model_path, module_path)
+        state_dict = create_whole_model_state_dict(model_path, hf_config)
+        dequantized_state_dict = dequantize_state_dict(state_dict, hf_config)
+        reference_model.load_state_dict(dequantized_state_dict)
 
     ############################
     ### Torch inputs
@@ -125,14 +145,13 @@ def test_forward_pass(
             position_ids=position_idxs,
             mode=mode,
         )
-
     ############################
     ### Set up TTNN configs
     ############################
     logger.info("Setting up TTNN configs")
 
     # For now, since we're only loading one layer, we can replicate
-    weight_config = Model1D.convert_weights(hf_config, state_dict, tmp_path, mesh_device)
+    weight_config = Model1D.convert_weights(hf_config, state_dict, tmp_path, mesh_device, state_dict_prefix="model.")
 
     if mode == "prefill":
         model_config = Model1D.prefill_model_config(hf_config, mesh_device)
@@ -217,13 +236,13 @@ def test_forward_pass(
         tt_output = Model1D.forward_prefill(tt_input, run_config, user_id, rope_tensors, tt_page_table)
     else:
         tt_output = Model1D.forward_decode(tt_input, position_idxs_tensor, rope_tensors, tt_page_table, run_config)
-    tt_output_torch = ttnn.to_torch(
-        tt_output, mesh_composer=ttnn.ConcatMesh2dToTensor(mesh_device, dims=(0, -1), mesh_shape=mesh_shape)
-    )[output_row_idx, ...]
 
-    if mode == "decode":
-        # Torch Shape: [batch_size, seq_len, hidden_size]
-        tt_output_torch = tt_output_torch.permute(1, 0, 2)
+    tt_output_torch = ttnn.to_torch(tt_output, mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=-1))
+
+    assert (
+        tt_output_torch.shape[-1] == hf_config.vocab_size
+    ), f"Output shape mismatch: {tt_output_torch.shape} vs {hf_config.vocab_size}"
+    reference_output = reference_output.permute(1, 0, 2).unsqueeze(0)  # [1,1,B,V]
 
     ############################
     ### Validation
