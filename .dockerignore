@@ -5,3 +5,5 @@ build_Release/
 build_Release_tracy/
 build_RelWithDebInfo_tracy/
 __pycache__/
+DiT/
+python_env/
