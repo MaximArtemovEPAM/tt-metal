@@ -121,6 +121,15 @@ class TTMetaliumConan(ConanFile):
         cmake.configure(variables={"VERSION_NUMERIC": self.version})
         cmake.build()
 
+    def configure(self):
+        self.options["libnuma"].shared = True
+
+    def requirements(self):
+        self.requires("openmpi/4.1.6")
+        self.requires("capstone/5.0.6")
+        self.requires("libnuma/2.0.19")
+        self.requires("boost/1.88.0")
+
     def package(self):
         cmake = CMake(self)
         cmake.install()
