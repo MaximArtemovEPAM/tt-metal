@@ -131,6 +131,7 @@ class TTMetaliumConan(ConanFile):
         self.requires("capstone/5.0.6")
         self.requires("libnuma/2.0.19")
         self.requires("boost/1.88.0")
+        self.requires("hwloc/2.10.0")
 
     def package(self):
         cmake = CMake(self)

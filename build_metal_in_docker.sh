@@ -24,5 +24,4 @@ fi
 docker build --progress=plain \
     -f dockerfile/Dockerfile.conan-test.${DISTRO} -t "${IMAGE_NAME}" .
 
-docker run -it --rm -v $(pwd):/workspace "${IMAGE_NAME}" \
-    ./build_metal_with_conan.sh /tt-metal-conan/conan-build "${DISTRO}"
+docker run -it --rm -v $(pwd):/workspace "${IMAGE_NAME}" conan create . --build=missing

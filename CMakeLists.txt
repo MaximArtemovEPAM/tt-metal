@@ -36,14 +36,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DDEBUG -fno-omit-frame-pointer")
 
-option(CONAN_INSTALL_ROOT "Root for the conan package installation" "")
-message(STATUS "CONAN_INSTALL_ROOT = ${CONAN_INSTALL_ROOT}")
-
-if(CONAN_INSTALL_ROOT)
-    set(CONAN_INSTALL_DIR "${CONAN_INSTALL_ROOT}/build/Release/generators")
-    include("${CONAN_INSTALL_DIR}/conan_cmakedeps_paths.cmake")
-endif()
-
 find_package(libnuma REQUIRED)
 find_package(hwloc)
 
