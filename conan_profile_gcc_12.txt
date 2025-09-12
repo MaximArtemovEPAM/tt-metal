@@ -2,7 +2,7 @@
 os=Linux
 arch=x86_64
 compiler=gcc
-compiler.cppstd=20
+compiler.cppstd=gnu20
 compiler.version=12
 compiler.libcxx=libstdc++11
 build_type=Release

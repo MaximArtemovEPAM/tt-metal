@@ -36,7 +36,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DDEBUG -fno-omit-frame-pointer")
 
-find_package(libnuma REQUIRED)
+find_package(libnuma)
 find_package(hwloc)
 
 if(TARGET hwloc::hwloc)
