@@ -38,7 +38,7 @@ RUN conan profile show
 
 WORKDIR /tt-metal
 COPY . /tt-metal
-RUN ls
+RUN conan install . --build=missing
 
 
 # # Build tt-metal and venv, then clear cache
