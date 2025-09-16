@@ -125,6 +125,7 @@ class TTMetaliumConan(ConanFile):
 
     def configure(self):
         self.options["libnuma"].shared = True
+        self.options["cpython"].with_tkinter = False
 
     def requirements(self):
         self.requires("openmpi/4.1.6")
@@ -133,6 +134,7 @@ class TTMetaliumConan(ConanFile):
         self.requires("boost/1.88.0")
         self.requires("hwloc/2.10.0")
         self.requires("zlib/1.3.1")
+        self.requires("cpython/3.10.14")
 
     def package(self):
         cmake = CMake(self)

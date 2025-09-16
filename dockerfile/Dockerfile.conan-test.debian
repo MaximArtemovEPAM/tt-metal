@@ -23,9 +23,10 @@ ENV PYTHONPATH=/tt-metal
 
 ENV HOME="/root"
 WORKDIR $HOME
+ENV PATH_FIRST="$PATH"
 
-ENV VIRTUAL_ENV=/root/tt-metal-virtualenv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+ENV VIRTUAL_ENV=/root/tt-metal-virtualenv-tmp
+ENV PATH="$VIRTUAL_ENV/bin:$PATH_FIRST"
 
 RUN python3 -m venv $VIRTUAL_ENV
 
@@ -36,9 +37,19 @@ RUN cp /tmp/profile $(conan profile path default)
 RUN git config --global --add safe.directory /workspace
 RUN conan profile show
 
+
+WORKDIR /tt-conan
+COPY .git /tt-conan/.git
+COPY conanfile.py /tt-conan/conanfile.py
+RUN conan install . --build=missing
+RUN . .conan-build/Release/generators/conanrun.sh && python3.10 -m venv /root/tt-metal-virtualenv
+
+ENV VIRTUAL_ENV=/root/tt-metal-virtualenv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH_FIRST"
+RUN pip3 install conan
+
 WORKDIR /tt-metal
 COPY . /tt-metal
-RUN conan install . --build=missing
 
 
 # # Build tt-metal and venv, then clear cache
